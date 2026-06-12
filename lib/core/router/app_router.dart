@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/config/supabase_config.dart';
+import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/auth/splash_screen.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/auth/register_screen.dart';
@@ -19,14 +22,46 @@ import '../../presentation/screens/admin/planning_screen.dart';
 import '../../presentation/screens/admin/payments_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  // Écouter les changements d'auth pour rafraîchir le router
+  final notifier = RouterNotifier(ref);
+
   return GoRouter(
     initialLocation: '/',
-    debugLogDiagnostics: false,
+    refreshListenable: notifier,
+    redirect: (context, state) {
+      final user = Supabase.instance.client.auth.currentUser;
+      final isLoggedIn = user != null;
+      final isOnAuthPage = state.matchedLocation == '/login' ||
+          state.matchedLocation == '/register' ||
+          state.matchedLocation == '/';
+
+      // Pas connecté → login (sauf splash/login/register)
+      if (!isLoggedIn && !isOnAuthPage) {
+        return '/login';
+      }
+
+      // Connecté → on ne reste pas sur les pages d'auth
+      if (isLoggedIn && isOnAuthPage && state.matchedLocation != '/') {
+        final profile = ref.read(currentProfileProvider).valueOrNull;
+        if (profile == null) return null; // Attente du profil
+
+        if (profile.role == SupabaseConfig.roleAdmin) {
+          return '/admin/home';
+        } else {
+          return '/student/home';
+        }
+      }
+
+      return null;
+    },
     routes: [
+      // ── Splash ────────────────────────────────────────────────────────
       GoRoute(
         path: '/',
         builder: (context, state) => const SplashScreen(),
       ),
+
+      // ── Auth ──────────────────────────────────────────────────────────
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -35,10 +70,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
       ),
+
+      // ── Espace Élève (avec bottom nav) ────────────────────────────────
       ShellRoute(
-        builder: (context, state, child) {
-          return StudentShell(child: child);
-        },
+        builder: (context, state, child) =>
+            StudentShell(child: child),
         routes: [
           GoRoute(
             path: '/student/home',
@@ -47,6 +83,21 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/student/quiz',
             builder: (context, state) => const QuizCategoriesScreen(),
+            routes: [
+              GoRoute(
+                path: 'session/:categoryId',
+                builder: (context, state) => QuizSessionScreen(
+                  categoryId: state.pathParameters['categoryId']!,
+                  categoryName: state.uri.queryParameters['name'] ?? 'Quiz',
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'result',
+                    builder: (context, state) => const QuizResultScreen(),
+                  ),
+                ],
+              ),
+            ],
           ),
           GoRoute(
             path: '/student/agenda',
@@ -62,27 +113,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      GoRoute(
-        path: '/student/quiz/session/:categoryId',
-        builder: (context, state) => QuizSessionScreen(
-          categoryId: state.pathParameters['categoryId']!,
-        ),
-      ),
-      GoRoute(
-        path: '/student/quiz/result',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return QuizResultScreen(
-            score: extra?['score'] ?? 0,
-            totalQuestions: extra?['totalQuestions'] ?? 0,
-            correctAnswers: extra?['correctAnswers'] ?? 0,
-          );
-        },
-      ),
+
+      // ── Espace Admin (avec bottom nav) ────────────────────────────────
       ShellRoute(
-        builder: (context, state, child) {
-          return AdminShell(child: child);
-        },
+        builder: (context, state, child) =>
+            AdminShell(child: child),
         routes: [
           GoRoute(
             path: '/admin/home',
@@ -114,199 +149,161 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class StudentShell extends StatefulWidget {
-  final Widget child;
+// ─── Notifier pour rafraîchir le router quand l'auth change ──────────────────
 
+class RouterNotifier extends ChangeNotifier {
+  final Ref _ref;
+
+  RouterNotifier(this._ref) {
+    _ref.listen(authStateProvider, (_, __) => notifyListeners());
+    _ref.listen(currentProfileProvider, (_, __) => notifyListeners());
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STUDENT SHELL — Bottom Navigation Bar pour les élèves
+// ═════════════════════════════════════════════════════════════════════════════
+
+class StudentShell extends ConsumerWidget {
+  final Widget child;
   const StudentShell({super.key, required this.child});
 
   @override
-  State<StudentShell> createState() => _StudentShellState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final location = GoRouterState.of(context).matchedLocation;
+    int currentIndex = 0;
 
-class _StudentShellState extends State<StudentShell> {
-  int _selectedIndex = 0;
+    if (location.startsWith('/student/home')) currentIndex = 0;
+    else if (location.startsWith('/student/quiz')) currentIndex = 1;
+    else if (location.startsWith('/student/agenda')) currentIndex = 2;
+    else if (location.startsWith('/student/livret')) currentIndex = 3;
+    else if (location.startsWith('/student/profile')) currentIndex = 4;
 
-  final List<String> _routes = [
-    '/student/home',
-    '/student/quiz',
-    '/student/agenda',
-    '/student/livret',
-    '/student/profile',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
-      body: widget.child,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildNavItem(0, Icons.home_rounded, 'Accueil'),
-                _buildNavItem(1, Icons.quiz_rounded, 'Quiz'),
-                _buildNavItem(2, Icons.calendar_month_rounded, 'Agenda'),
-                _buildNavItem(3, Icons.menu_book_rounded, 'Livret'),
-                _buildNavItem(4, Icons.person_rounded, 'Profil'),
-              ],
-            ),
+      body: child,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: currentIndex,
+        onDestinationSelected: (index) {
+          switch (index) {
+            case 0:
+              context.go('/student/home');
+              break;
+            case 1:
+              context.go('/student/quiz');
+              break;
+            case 2:
+              context.go('/student/agenda');
+              break;
+            case 3:
+              context.go('/student/livret');
+              break;
+            case 4:
+              context.go('/student/profile');
+              break;
+          }
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Accueil',
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(int index, IconData icon, String label) {
-    final isSelected = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _selectedIndex = index);
-        context.go(_routes[index]);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: isSelected
-            ? BoxDecoration(
-                color: const Color(0xFF1E65C5).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
-              )
-            : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? const Color(0xFF1E65C5)
-                  : const Color(0xFF9CA3AF),
-              size: 24,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight:
-                    isSelected ? FontWeight.w600 : FontWeight.w400,
-                color: isSelected
-                    ? const Color(0xFF1E65C5)
-                    : const Color(0xFF9CA3AF),
-              ),
-            ),
-          ],
-        ),
+          NavigationDestination(
+            icon: Icon(Icons.quiz_outlined),
+            selectedIcon: Icon(Icons.quiz),
+            label: 'Code',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Agenda',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.menu_book_outlined),
+            selectedIcon: Icon(Icons.menu_book),
+            label: 'Livret',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outlined),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profil',
+          ),
+        ],
       ),
     );
   }
 }
 
-class AdminShell extends StatefulWidget {
-  final Widget child;
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN SHELL — Bottom Navigation Bar pour les admins
+// ═════════════════════════════════════════════════════════════════════════════
 
+class AdminShell extends ConsumerWidget {
+  final Widget child;
   const AdminShell({super.key, required this.child});
 
   @override
-  State<AdminShell> createState() => _AdminShellState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final location = GoRouterState.of(context).matchedLocation;
+    int currentIndex = 0;
 
-class _AdminShellState extends State<AdminShell> {
-  int _selectedIndex = 0;
+    if (location.startsWith('/admin/home')) currentIndex = 0;
+    else if (location.startsWith('/admin/students')) currentIndex = 1;
+    else if (location.startsWith('/admin/planning')) currentIndex = 2;
+    else if (location.startsWith('/admin/payments')) currentIndex = 3;
+    else if (location.startsWith('/admin/instructors') ||
+        location.startsWith('/admin/vehicles')) currentIndex = 4;
 
-  final List<String> _routes = [
-    '/admin/home',
-    '/admin/students',
-    '/admin/instructors',
-    '/admin/planning',
-    '/admin/payments',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
-      body: widget.child,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildNavItem(0, Icons.dashboard_rounded, 'Dashboard'),
-                _buildNavItem(1, Icons.school_rounded, 'Élèves'),
-                _buildNavItem(2, Icons.badge_rounded, 'Moniteurs'),
-                _buildNavItem(3, Icons.calendar_today_rounded, 'Planning'),
-                _buildNavItem(4, Icons.payments_rounded, 'Paiements'),
-              ],
-            ),
+      body: child,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: currentIndex,
+        onDestinationSelected: (index) {
+          switch (index) {
+            case 0:
+              context.go('/admin/home');
+              break;
+            case 1:
+              context.go('/admin/students');
+              break;
+            case 2:
+              context.go('/admin/planning');
+              break;
+            case 3:
+              context.go('/admin/payments');
+              break;
+            case 4:
+              context.go('/admin/instructors');
+              break;
+          }
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Tableau de bord',
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(int index, IconData icon, String label) {
-    final isSelected = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _selectedIndex = index);
-        context.go(_routes[index]);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: isSelected
-            ? BoxDecoration(
-                color: const Color(0xFF1E65C5).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
-              )
-            : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? const Color(0xFF1E65C5)
-                  : const Color(0xFF9CA3AF),
-              size: 24,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight:
-                    isSelected ? FontWeight.w600 : FontWeight.w400,
-                color: isSelected
-                    ? const Color(0xFF1E65C5)
-                    : const Color(0xFF9CA3AF),
-              ),
-            ),
-          ],
-        ),
+          NavigationDestination(
+            icon: Icon(Icons.school_outlined),
+            selectedIcon: Icon(Icons.school),
+            label: 'Élèves',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: 'Planning',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.payments_outlined),
+            selectedIcon: Icon(Icons.payments),
+            label: 'Paiements',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.manage_accounts_outlined),
+            selectedIcon: Icon(Icons.manage_accounts),
+            label: 'Gestion',
+          ),
+        ],
       ),
     );
   }

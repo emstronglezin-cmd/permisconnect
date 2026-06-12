@@ -1,283 +1,401 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../presentation/providers/auth_provider.dart';
+import '../../../presentation/providers/student_provider.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profileAsync = ref.watch(currentProfileProvider);
+    final studentAsync = ref.watch(myStudentProvider);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 240,
-            floating: false,
-            pinned: true,
-            backgroundColor: const Color(0xFF1E65C5),
-            elevation: 0,
-            automaticallyImplyLeading: false,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF1450A0), Color(0xFF3D7DD4)],
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Mon Profil'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => _showEditDialog(context, ref),
+          ),
+        ],
+      ),
+      body: profileAsync.when(
+        data: (profile) {
+          if (profile == null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Profil introuvable'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () =>
+                        ref.read(currentProfileProvider.notifier).load(),
+                    child: const Text('Actualiser'),
                   ),
-                ),
-                child: SafeArea(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Stack(
-                          children: [
-                            Container(
-                              width: 90, height: 90,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 3),
-                                color: Colors.white.withValues(alpha: 0.2),
-                              ),
-                              child: const Icon(Icons.person_rounded,
-                                  color: Colors.white, size: 50),
-                            ),
-                            Positioned(
-                              bottom: 0, right: 0,
-                              child: Container(
-                                width: 26, height: 26,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFFF7F27),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.edit_rounded,
-                                    color: Colors.white, size: 14),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Text('Kouamé Issa',
-                            style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                ],
+              ),
+            );
+          }
+
+          return SingleChildScrollView(
+            child: Column(
+              children: [
+                // En-tête profil
+                Container(
+                  color: AppColors.primary,
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 44,
+                        backgroundColor: Colors.white.withValues(alpha: 0.2),
+                        backgroundImage: profile.avatarUrl != null
+                            ? NetworkImage(profile.avatarUrl!)
+                            : null,
+                        child: profile.avatarUrl == null
+                            ? Text(
+                                profile.fullName.substring(0, 1).toUpperCase(),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        profile.fullName,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      if (profile.phone != null) ...[
                         const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF7F27).withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text('Élève - Formule Standard',
-                              style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 12,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w500)),
+                        Text(
+                          profile.phone!,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 14),
                         ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              ),
-            ),
-          ),
 
-          SliverPadding(
-            padding: const EdgeInsets.all(20),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                // Carte résumé
-                _buildSummaryCard(),
-                const SizedBox(height: 20),
-
-                // Informations personnelles
-                _buildSection('Informations personnelles', [
-                  _buildInfoTile(Icons.email_outlined, 'Email', 'kouame.issa@email.com'),
-                  _buildInfoTile(Icons.phone_outlined, 'Téléphone', '+226 70 12 34 56'),
-                  _buildInfoTile(Icons.calendar_today_outlined, 'Inscription', '15 Janvier 2024'),
-                  _buildInfoTile(Icons.school_outlined, 'Formule', 'Standard - 30h de conduite'),
-                ]),
                 const SizedBox(height: 16),
+
+                // Infos élève
+                studentAsync.when(
+                  data: (student) => student != null
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _InfoCard(
+                            title: 'Informations de formation',
+                            children: [
+                              _InfoRow(
+                                icon: Icons.badge_outlined,
+                                label: 'N° dossier',
+                                value: student.registrationNumber ??
+                                    'Non attribué',
+                              ),
+                              _InfoRow(
+                                icon: Icons.school_outlined,
+                                label: 'Formule',
+                                value: student.formula ?? 'Non définie',
+                              ),
+                              _InfoRow(
+                                icon: Icons.access_time,
+                                label: 'Heures effectuées',
+                                value:
+                                    '${student.hoursCompleted} / ${student.hoursRequired} h',
+                              ),
+                              _InfoRow(
+                                icon: Icons.calendar_today_outlined,
+                                label: 'Date d\'inscription',
+                                value: student.enrollmentDate != null
+                                    ? '${student.enrollmentDate!.day}/${student.enrollmentDate!.month}/${student.enrollmentDate!.year}'
+                                    : 'Non définie',
+                              ),
+                              if (student.examDate != null)
+                                _InfoRow(
+                                  icon: Icons.event,
+                                  label: 'Date d\'examen',
+                                  value:
+                                      '${student.examDate!.day}/${student.examDate!.month}/${student.examDate!.year}',
+                                ),
+                            ],
+                          ),
+                        )
+                      : const SizedBox(),
+                  loading: () => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: LinearProgressIndicator(),
+                  ),
+                  error: (_, __) => const SizedBox(),
+                ),
+
+                const SizedBox(height: 12),
 
                 // Paramètres
-                _buildSection('Paramètres', [
-                  _buildSettingTile(Icons.notifications_outlined, 'Notifications',
-                    trailing: Switch(
-                      value: true,
-                      onChanged: (_) {},
-                      activeColor: const Color(0xFF1E65C5),
-                    )),
-                  _buildSettingTile(Icons.language_outlined, 'Langue', subtitle: 'Français'),
-                  _buildSettingTile(Icons.dark_mode_outlined, 'Thème sombre',
-                    trailing: Switch(
-                      value: false,
-                      onChanged: (_) {},
-                      activeColor: const Color(0xFF1E65C5),
-                    )),
-                  _buildSettingTile(Icons.offline_bolt_outlined, 'Mode hors-ligne',
-                    subtitle: 'Quiz disponibles sans connexion',
-                    trailing: Switch(
-                      value: true,
-                      onChanged: (_) {},
-                      activeColor: const Color(0xFF1E65C5),
-                    )),
-                ]),
-                const SizedBox(height: 16),
-
-                // Aide et support
-                _buildSection('Aide et support', [
-                  _buildSettingTile(Icons.help_outline_rounded, 'Centre d\'aide'),
-                  _buildSettingTile(Icons.bug_report_outlined, 'Signaler un problème'),
-                  _buildSettingTile(Icons.info_outline_rounded, 'À propos', subtitle: 'Version 1.0.0'),
-                ]),
-                const SizedBox(height: 16),
-
-                // Bouton déconnexion
-                Container(
-                  margin: const EdgeInsets.only(bottom: 80),
-                  child: OutlinedButton.icon(
-                    onPressed: () => context.go('/login'),
-                    icon: const Icon(Icons.logout_rounded, color: Color(0xFFE74C3C)),
-                    label: const Text('Se déconnecter',
-                        style: TextStyle(
-                            fontFamily: 'Poppins',
-                            color: Color(0xFFE74C3C),
-                            fontWeight: FontWeight.w600)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFE74C3C)),
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25)),
-                    ),
-                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SettingsCard(ref: ref),
                 ),
-              ]),
+
+                const SizedBox(height: 32),
+              ],
             ),
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, __) =>
+            const Center(child: Text('Erreur de chargement')),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref) {
+    final profile = ref.read(currentProfileProvider).valueOrNull;
+    if (profile == null) return;
+
+    final nameCtrl = TextEditingController(text: profile.fullName);
+    final phoneCtrl = TextEditingController(text: profile.phone ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Modifier le profil'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration:
+                  const InputDecoration(labelText: 'Nom complet'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Téléphone'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              await ref.read(currentProfileProvider.notifier).update(
+                    fullName: nameCtrl.text,
+                    phone: phoneCtrl.text,
+                  );
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Sauvegarder'),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildSummaryCard() {
+class _InfoCard extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _InfoCard({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFF7F27), Color(0xFFFF9A52)],
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFF7F27).withValues(alpha: 0.3),
-            blurRadius: 16, offset: const Offset(0, 6),
-          ),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
         ],
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Text(
+              title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ),
+          const Divider(height: 1),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          _buildStatItem('22h', 'Conduite', Colors.white),
-          _buildStatDivider(),
-          _buildStatItem('75%', 'Score code', Colors.white),
-          _buildStatDivider(),
-          _buildStatItem('38 500 F', 'Restant', Colors.white70),
+          Icon(icon, size: 18, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 14),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 14),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildStatItem(String value, String label, Color textColor) {
-    return Expanded(
+class _SettingsCard extends ConsumerWidget {
+  final WidgetRef ref;
+  const _SettingsCard({required this.ref});
+
+  @override
+  Widget build(BuildContext context, WidgetRef widgetRef) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
+      ),
       child: Column(
         children: [
-          Text(value,
-              style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: textColor)),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.white.withValues(alpha: 0.8))),
+          _SettingItem(
+            icon: Icons.notifications_outlined,
+            label: 'Notifications',
+            onTap: () {},
+          ),
+          const Divider(height: 1),
+          _SettingItem(
+            icon: Icons.lock_outline,
+            label: 'Changer le mot de passe',
+            onTap: () {},
+          ),
+          const Divider(height: 1),
+          _SettingItem(
+            icon: Icons.help_outline,
+            label: 'Aide et support',
+            onTap: () {},
+          ),
+          const Divider(height: 1),
+          _SettingItem(
+            icon: Icons.logout,
+            label: 'Se déconnecter',
+            color: AppColors.error,
+            onTap: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Déconnexion'),
+                  content: const Text(
+                      'Voulez-vous vous déconnecter ?'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Annuler')),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.error,
+                          foregroundColor: Colors.white),
+                      child: const Text('Déconnecter'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                await widgetRef.read(authActionsProvider).signOut();
+                if (context.mounted) context.go('/login');
+              }
+            },
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildStatDivider() {
-    return Container(
-      width: 1, height: 32,
-      color: Colors.white.withValues(alpha: 0.3),
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-    );
-  }
+class _SettingItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
 
-  Widget _buildSection(String title, List<Widget> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title,
-            style: const TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1A1A2E))),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8, offset: const Offset(0, 2),
+  const _SettingItem({
+    required this.icon,
+    required this.label,
+    this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final itemColor = color ?? AppColors.textPrimary;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: itemColor, size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                    color: itemColor, fontWeight: FontWeight.w500),
               ),
-            ],
-          ),
-          child: Column(children: items),
+            ),
+            Icon(Icons.arrow_forward_ios,
+                size: 14, color: Colors.grey.shade400),
+          ],
         ),
-      ],
-    );
-  }
-
-  Widget _buildInfoTile(IconData icon, String label, String value) {
-    return ListTile(
-      leading: Icon(icon, color: const Color(0xFF1E65C5), size: 20),
-      title: Text(label,
-          style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 12,
-              color: Color(0xFF9CA3AF))),
-      subtitle: Text(value,
-          style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF1A1A2E))),
-      dense: true,
-    );
-  }
-
-  Widget _buildSettingTile(IconData icon, String title,
-      {String? subtitle, Widget? trailing}) {
-    return ListTile(
-      leading: Icon(icon, color: const Color(0xFF6B7280), size: 22),
-      title: Text(title,
-          style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF1A1A2E))),
-      subtitle: subtitle != null
-          ? Text(subtitle,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)))
-          : null,
-      trailing: trailing ?? const Icon(Icons.chevron_right_rounded,
-          color: Color(0xFFD1D5DB), size: 20),
-      dense: true,
+      ),
     );
   }
 }

@@ -1,237 +1,231 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../presentation/providers/quiz_provider.dart';
 
-class QuizResultScreen extends StatefulWidget {
-  final int score;
-  final int totalQuestions;
-  final int correctAnswers;
-
-  const QuizResultScreen({
-    super.key,
-    required this.score,
-    required this.totalQuestions,
-    required this.correctAnswers,
-  });
+class QuizResultScreen extends ConsumerWidget {
+  const QuizResultScreen({super.key});
 
   @override
-  State<QuizResultScreen> createState() => _QuizResultScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(quizSessionProvider);
 
-class _QuizResultScreenState extends State<QuizResultScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<double> _scoreAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _animController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-    _scoreAnim = Tween<double>(begin: 0, end: widget.score.toDouble()).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
-    );
-    _animController.forward();
-  }
-
-  @override
-  void dispose() {
-    _animController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isPassed = widget.score >= 70;
-    final wrongAnswers = widget.totalQuestions - widget.correctAnswers;
-
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isPassed
-                ? [const Color(0xFF1B7E41), const Color(0xFF27AE60)]
-                : [const Color(0xFFC0392B), const Color(0xFFE74C3C)],
+    if (session == null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Résultat introuvable'),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => context.go('/student/quiz'),
+                child: const Text('Retour aux quiz'),
+              ),
+            ],
           ),
         ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Icône résultat
-                Container(
-                  width: 110,
-                  height: 110,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 3),
-                  ),
-                  child: Icon(
-                    isPassed ? Icons.emoji_events_rounded : Icons.replay_rounded,
-                    color: Colors.white,
-                    size: 56,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  isPassed ? 'Félicitations ! 🎉' : 'Continuez vos efforts !',
-                  style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isPassed
-                      ? 'Vous avez réussi ce quiz !'
-                      : 'Vous pouvez faire mieux. Réessayez !',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withValues(alpha: 0.85)),
-                ),
-                const SizedBox(height: 40),
+      );
+    }
 
-                // Score animé
-                AnimatedBuilder(
-                  animation: _scoreAnim,
-                  builder: (context, child) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '${_scoreAnim.value.round()}%',
-                            style: const TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 64,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          ),
-                          Text('Score obtenu',
-                              style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.white.withValues(alpha: 0.8))),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 28),
+    final percentage = session.percentage;
+    final isPassed = percentage >= 70;
+    final color = isPassed ? AppColors.success : AppColors.error;
 
-                // Détails
-                Row(
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 20),
+              // Résultat visuel
+              Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withValues(alpha: 0.1),
+                  border: Border.all(color: color, width: 4),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Expanded(
-                      child: _buildStatCard(
-                          Icons.check_circle_rounded,
-                          '${widget.correctAnswers}',
-                          'Bonnes réponses',
-                          Colors.white,
-                          const Color(0xFF27AE60)),
+                    Text(
+                      '${percentage.round()}%',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                          Icons.cancel_rounded,
-                          '$wrongAnswers',
-                          'Mauvaises réponses',
-                          Colors.white,
-                          const Color(0xFFE74C3C)),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                          Icons.quiz_rounded,
-                          '${widget.totalQuestions}',
-                          'Questions totales',
-                          Colors.white,
-                          Colors.white70),
+                    Text(
+                      isPassed ? 'Réussi !' : 'Échoué',
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 40),
+              ),
+              const SizedBox(height: 28),
 
-                // Boutons
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed: () => context.go('/student/quiz'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: isPassed
-                          ? const Color(0xFF27AE60)
-                          : const Color(0xFFE74C3C),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
-                      elevation: 4,
+              Text(
+                isPassed
+                    ? '🎉 Félicitations !'
+                    : '💪 Continuez vos efforts !',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isPassed
+                    ? 'Vous avez réussi ce quiz avec succès !'
+                    : 'La note de passage est 70%. Révisez et réessayez.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Statistiques détaillées
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
                     ),
-                    child: Text(
-                      'Choisir un autre thème',
-                      style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: isPassed
-                              ? const Color(0xFF27AE60)
-                              : const Color(0xFFE74C3C)),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _ResultRow(
+                      icon: Icons.check_circle,
+                      iconColor: AppColors.success,
+                      label: 'Bonnes réponses',
+                      value:
+                          '${session.correctAnswers} / ${session.totalQuestions}',
+                    ),
+                    const Divider(height: 24),
+                    _ResultRow(
+                      icon: Icons.cancel,
+                      iconColor: AppColors.error,
+                      label: 'Mauvaises réponses',
+                      value:
+                          '${session.totalQuestions - session.correctAnswers} / ${session.totalQuestions}',
+                    ),
+                    const Divider(height: 24),
+                    _ResultRow(
+                      icon: Icons.timer,
+                      iconColor: AppColors.primary,
+                      label: 'Durée',
+                      value: _formatDuration(session.durationSeconds),
+                    ),
+                    const Divider(height: 24),
+                    _ResultRow(
+                      icon: Icons.star,
+                      iconColor: Colors.amber,
+                      label: 'Score',
+                      value: '${session.score} pts',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Boutons
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    ref.read(quizSessionProvider.notifier).reset();
+                    context.go('/student/quiz');
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refaire un quiz'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () => context.go('/student/home'),
-                  child: const Text('Retour à l\'accueil',
-                      style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500)),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    ref.read(quizSessionProvider.notifier).reset();
+                    context.go('/student/home');
+                  },
+                  icon: const Icon(Icons.home),
+                  label: const Text('Retour à l\'accueil'),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStatCard(IconData icon, String value, String label, Color iconColor, Color accentColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: accentColor, size: 24),
-          const SizedBox(height: 6),
-          Text(value,
-              style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white)),
-          Text(label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.white.withValues(alpha: 0.75))),
-        ],
-      ),
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m}m ${s.toString().padLeft(2, '0')}s';
+  }
+}
+
+class _ResultRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+
+  const _ResultRow({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: iconColor, size: 22),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+      ],
     );
   }
 }

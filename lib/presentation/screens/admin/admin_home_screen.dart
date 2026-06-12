@@ -1,160 +1,206 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../presentation/providers/auth_provider.dart';
+import '../../../presentation/providers/student_provider.dart';
+import '../../../presentation/providers/payment_provider.dart';
 
-class AdminHomeScreen extends StatelessWidget {
+class AdminHomeScreen extends ConsumerWidget {
   const AdminHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profileAsync = ref.watch(currentProfileProvider);
+    final statsAsync = ref.watch(adminStatsProvider);
+    final paymentsAsync = ref.watch(allPaymentsProvider);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: AppColors.background,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 180,
-            floating: false,
+            expandedHeight: 140,
             pinned: true,
-            backgroundColor: const Color(0xFF1E65C5),
-            elevation: 0,
-            automaticallyImplyLeading: false,
+            backgroundColor: AppColors.primary,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
+                    colors: [AppColors.primary, const Color(0xFF0D3D7A)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0xFF1450A0), Color(0xFF3D7DD4)],
                   ),
                 ),
                 child: SafeArea(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Tableau de Bord',
-                                    style: TextStyle(
-                                        fontFamily: 'Poppins',
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white)),
-                                Text('Administration - PermisConnect',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.white.withValues(alpha: 0.75))),
-                              ],
-                            ),
-                            Container(
-                              width: 42, height: 42,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.admin_panel_settings_rounded,
-                                  color: Colors.white, size: 22),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        // Indicateurs rapides
-                        Row(
-                          children: [
-                            _buildQuickBadge(Icons.circle, '3', 'Alertes', const Color(0xFFE74C3C)),
-                            const SizedBox(width: 12),
-                            _buildQuickBadge(Icons.payment_rounded, '8', 'Paiements en attente', const Color(0xFFF39C12)),
-                            const SizedBox(width: 12),
-                            _buildQuickBadge(Icons.event_available_rounded, '5', 'Cours aujourd\'hui', const Color(0xFF27AE60)),
-                          ],
-                        ),
-                      ],
+                    padding: const EdgeInsets.all(20),
+                    child: profileAsync.when(
+                      data: (profile) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Tableau de bord',
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 13),
+                          ),
+                          Text(
+                            profile?.fullName ?? 'Administrateur',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      loading: () => const SizedBox(),
+                      error: (_, __) => const SizedBox(),
                     ),
                   ),
                 ),
               ),
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined,
+                    color: Colors.white),
+                onPressed: () {},
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.white),
+                onPressed: () async {
+                  await ref.read(authActionsProvider).signOut();
+                  if (context.mounted) context.go('/login');
+                },
+              ),
+            ],
           ),
 
           SliverPadding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // KPIs principaux
-                GridView.count(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 14,
-                  childAspectRatio: 1.2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _buildKPICard('48', 'Élèves inscrits', Icons.school_rounded,
-                        const Color(0xFF1E65C5), '+3 ce mois'),
-                    _buildKPICard('8', 'Moniteurs actifs', Icons.badge_rounded,
-                        const Color(0xFF27AE60), '2 disponibles'),
-                    _buildKPICard('156h', 'Heures programmées', Icons.access_time_rounded,
-                        const Color(0xFFFF7F27), 'ce mois'),
-                    _buildKPICard('2,4M F', 'Paiements reçus', Icons.payments_rounded,
-                        const Color(0xFF9B59B6), 'ce mois'),
-                  ],
+                // KPIs
+                statsAsync.when(
+                  data: (stats) => GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.5,
+                    children: [
+                      _KpiCard(
+                        value: '${stats['total_students'] ?? 0}',
+                        label: 'Total Élèves',
+                        icon: Icons.school,
+                        color: AppColors.primary,
+                      ),
+                      _KpiCard(
+                        value: '${stats['active_students'] ?? 0}',
+                        label: 'Élèves actifs',
+                        icon: Icons.person_outline,
+                        color: AppColors.success,
+                      ),
+                      _KpiCard(
+                        value: '${stats['total_instructors'] ?? 0}',
+                        label: 'Moniteurs',
+                        icon: Icons.drive_eta,
+                        color: AppColors.accent,
+                      ),
+                      _KpiCard(
+                        value: '${stats['total_vehicles'] ?? 0}',
+                        label: 'Véhicules',
+                        icon: Icons.directions_car,
+                        color: Colors.purple,
+                      ),
+                    ],
+                  ),
+                  loading: () => const SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (_, __) => const SizedBox(),
                 ),
-                const SizedBox(height: 24),
-
-                // Restes à payer
-                _buildPaymentSummary(),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // Accès rapides
-                const Text('Actions rapides',
+                const Text('Navigation rapide',
                     style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A1A2E))),
-                const SizedBox(height: 14),
-
+                        fontWeight: FontWeight.w700, fontSize: 16)),
+                const SizedBox(height: 12),
                 GridView.count(
                   crossAxisCount: 3,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.85,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.0,
                   children: [
-                    _buildQuickAction(context, Icons.person_add_rounded, 'Ajouter élève', const Color(0xFF1E65C5), '/admin/students'),
-                    _buildQuickAction(context, Icons.event_rounded, 'Planifier cours', const Color(0xFF27AE60), '/admin/planning'),
-                    _buildQuickAction(context, Icons.receipt_long_rounded, 'Enregistrer paiement', const Color(0xFFFF7F27), '/admin/payments'),
-                    _buildQuickAction(context, Icons.directions_car_rounded, 'Gérer véhicules', const Color(0xFF9B59B6), '/admin/vehicles'),
-                    _buildQuickAction(context, Icons.bar_chart_rounded, 'Rapports', const Color(0xFF3498DB), '/admin/home'),
-                    _buildQuickAction(context, Icons.settings_rounded, 'Paramètres', const Color(0xFF6B7280), '/admin/home'),
+                    _NavItem(
+                      icon: Icons.school,
+                      label: 'Élèves',
+                      onTap: () => context.go('/admin/students'),
+                    ),
+                    _NavItem(
+                      icon: Icons.drive_eta,
+                      label: 'Moniteurs',
+                      onTap: () => context.go('/admin/instructors'),
+                    ),
+                    _NavItem(
+                      icon: Icons.directions_car,
+                      label: 'Véhicules',
+                      onTap: () => context.go('/admin/vehicles'),
+                    ),
+                    _NavItem(
+                      icon: Icons.calendar_today,
+                      label: 'Planning',
+                      onTap: () => context.go('/admin/planning'),
+                    ),
+                    _NavItem(
+                      icon: Icons.payments,
+                      label: 'Paiements',
+                      onTap: () => context.go('/admin/payments'),
+                    ),
+                    _NavItem(
+                      icon: Icons.settings,
+                      label: 'Paramètres',
+                      onTap: () {},
+                    ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // Activité récente
-                const Text('Activité récente',
+                // Derniers paiements
+                const Text('Derniers paiements',
                     style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A1A2E))),
-                const SizedBox(height: 14),
-
-                _buildActivityItem(Icons.person_add_rounded, 'Nouvel élève inscrit',
-                    'Fatou Coulibaly - Formule Premium', 'il y a 2h', const Color(0xFF1E65C5)),
-                _buildActivityItem(Icons.payments_rounded, 'Paiement reçu',
-                    'Seydou Diallo - 50 000 F CFA', 'il y a 4h', const Color(0xFF27AE60)),
-                _buildActivityItem(Icons.event_rounded, 'Cours planifié',
-                    'Conduite - M. Ouédraogo', 'il y a 5h', const Color(0xFFFF7F27)),
-                _buildActivityItem(Icons.check_circle_rounded, 'Compétence validée',
-                    'Manœuvres - Issa Kouamé', 'hier', const Color(0xFF9B59B6)),
-
-                const SizedBox(height: 80),
+                        fontWeight: FontWeight.w700, fontSize: 16)),
+                const SizedBox(height: 12),
+                paymentsAsync.when(
+                  data: (payments) {
+                    final recent = payments.take(5).toList();
+                    if (recent.isEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text('Aucun paiement enregistré'),
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: recent
+                          .map((p) => _PaymentTile(payment: p))
+                          .toList(),
+                    );
+                  },
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (_, __) =>
+                      const Text('Erreur de chargement'),
+                ),
+                const SizedBox(height: 20),
               ]),
             ),
           ),
@@ -162,254 +208,164 @@ class AdminHomeScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildQuickBadge(IconData icon, String count, String label, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 22, height: 22,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Center(
-                child: Text(count,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(label,
-                  maxLines: 2,
-                  style: const TextStyle(
-                      fontSize: 10, color: Colors.white70)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+class _KpiCard extends StatelessWidget {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color color;
 
-  Widget _buildKPICard(String value, String label, IconData icon, Color color, String sub) {
+  const _KpiCard({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.1),
-            blurRadius: 16, offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const Spacer(),
-          Text(value,
-              style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: color)),
-          Text(label,
-              style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF1A1A2E))),
-          Text(sub,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPaymentSummary() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1450A0), Color(0xFF1E65C5)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1E65C5).withValues(alpha: 0.3),
-            blurRadius: 16, offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Text('Finances du Mois',
-                  style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _buildFinanceStat('2 400 000', 'Reçu', const Color(0xFF27AE60)),
-              _buildFinanceDivider(),
-              _buildFinanceStat('620 000', 'En attente', const Color(0xFFF39C12)),
-              _buildFinanceDivider(),
-              _buildFinanceStat('3 020 000', 'Total dû', Colors.white),
-            ],
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: 2400000 / 3020000,
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF27AE60)),
-              minHeight: 8,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text('79% des paiements reçus',
-              style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.75))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFinanceStat(String value, String label, Color color) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text('$value F',
-              style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: color)),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.white.withValues(alpha: 0.7))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFinanceDivider() {
-    return Container(
-      width: 1, height: 30,
-      color: Colors.white.withValues(alpha: 0.2),
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-    );
-  }
-
-  Widget _buildQuickAction(BuildContext context, IconData icon, String label, Color color, String route) {
-    return GestureDetector(
-      onTap: () => context.go(route),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.08),
-              blurRadius: 10, offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 42, height: 42,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 22),
-            ),
-            const SizedBox(height: 8),
-            Text(label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1A1A2E))),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActivityItem(IconData icon, String title, String subtitle, String time, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8, offset: const Offset(0, 2),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 22),
           ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+                fontSize: 24, fontWeight: FontWeight.bold, color: color),
+          ),
+          Text(
+            label,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6)
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppColors.primary, size: 28),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentTile extends StatelessWidget {
+  final dynamic payment;
+  const _PaymentTile({required this.payment});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPaid = payment.status == 'completed';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 4)
         ],
       ),
       child: Row(
         children: [
           Container(
-            width: 38, height: 38,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
+              color: isPaid
+                  ? AppColors.success.withValues(alpha: 0.1)
+                  : Colors.orange.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 18),
+            child: Icon(
+              isPaid ? Icons.check_circle : Icons.pending,
+              color: isPaid ? AppColors.success : Colors.orange,
+              size: 20,
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1A2E))),
-                Text(subtitle,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+                Text(
+                  payment.studentName ?? 'Élève',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+                Text(
+                  '${payment.createdAt.day}/${payment.createdAt.month}/${payment.createdAt.year}',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
               ],
             ),
           ),
-          Text(time,
-              style: const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+          Text(
+            payment.formattedAmount,
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isPaid ? AppColors.success : Colors.orange),
+          ),
         ],
       ),
     );

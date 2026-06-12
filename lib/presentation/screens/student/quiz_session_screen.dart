@@ -1,283 +1,163 @@
-import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../presentation/providers/quiz_provider.dart';
+import '../../../presentation/providers/student_provider.dart';
 
-class QuizSessionScreen extends StatefulWidget {
+class QuizSessionScreen extends ConsumerStatefulWidget {
   final String categoryId;
+  final String categoryName;
 
-  const QuizSessionScreen({super.key, required this.categoryId});
+  const QuizSessionScreen({
+    super.key,
+    required this.categoryId,
+    required this.categoryName,
+  });
 
   @override
-  State<QuizSessionScreen> createState() => _QuizSessionScreenState();
+  ConsumerState<QuizSessionScreen> createState() => _QuizSessionScreenState();
 }
 
-class _QuizSessionScreenState extends State<QuizSessionScreen>
-    with TickerProviderStateMixin {
-  List<Map<String, dynamic>> _questions = [];
-  int _currentIndex = 0;
-  String? _selectedAnswerId;
-  bool _isAnswered = false;
-  bool _isLoading = true;
-  int _correctAnswers = 0;
-  int _timeLeft = 30;
-  late Timer _timer;
-  late AnimationController _progressAnim;
-  late AnimationController _bounceAnim;
+class _QuizSessionScreenState extends ConsumerState<QuizSessionScreen> {
+  int? _selectedAnswer;
+  bool _answered = false;
 
   @override
   void initState() {
     super.initState();
-    _progressAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
-    _bounceAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-    _loadQuestions();
+    // Démarrer la session quand les questions sont chargées
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadQuestions();
+    });
   }
 
   Future<void> _loadQuestions() async {
+    final questions = await ref.read(
+      quizQuestionsProvider(widget.categoryId).future,
+    );
+    if (questions.isNotEmpty) {
+      ref.read(quizSessionProvider.notifier).start(questions);
+    }
+  }
+
+  void _onAnswer(int index) {
+    if (_answered) return;
+    setState(() {
+      _selectedAnswer = index;
+      _answered = true;
+    });
+  }
+
+  void _next() {
+    final session = ref.read(quizSessionProvider);
+    if (session == null) return;
+
+    if (_selectedAnswer != null) {
+      ref.read(quizSessionProvider.notifier).answer(_selectedAnswer!);
+    }
+
+    final updatedSession = ref.read(quizSessionProvider);
+    setState(() {
+      _selectedAnswer = null;
+      _answered = false;
+    });
+
+    if (updatedSession?.isFinished == true) {
+      _saveAndNavigate(updatedSession!);
+    }
+  }
+
+  Future<void> _saveAndNavigate(dynamic session) async {
+    // Sauvegarder la tentative si l'étudiant est identifié
     try {
-      final data = await rootBundle.loadString('assets/data/quiz_data.json');
-      final json = jsonDecode(data);
-      List<Map<String, dynamic>> allQuestions =
-          List<Map<String, dynamic>>.from(json['questions']);
-
-      if (widget.categoryId != 'exam') {
-        allQuestions = allQuestions
-            .where((q) => q['category_id'] == widget.categoryId)
-            .toList();
+      final student = await ref.read(myStudentProvider.future);
+      if (student != null) {
+        await ref.read(quizRepositoryProvider).saveAttempt(
+              studentId: student.id,
+              categoryId: widget.categoryId,
+              score: session.score,
+              totalQuestions: session.totalQuestions,
+              correctAnswers: session.correctAnswers,
+              durationSeconds: session.durationSeconds,
+            );
       }
+    } catch (_) {}
 
-      // Mélanger et limiter
-      allQuestions.shuffle();
-      final limit = widget.categoryId == 'exam' ? 10 : 5;
-      setState(() {
-        _questions = allQuestions.take(limit).toList();
-        _isLoading = false;
-      });
-      _startTimer();
-    } catch (e) {
-      setState(() {
-        _questions = _fallbackQuestions;
-        _isLoading = false;
-      });
-      _startTimer();
+    if (mounted) {
+      context.go(
+        '/student/quiz/session/${widget.categoryId}/result',
+      );
     }
-  }
-
-  final List<Map<String, dynamic>> _fallbackQuestions = [
-    {
-      'id': 'q_demo',
-      'question_text': 'Quelle est la vitesse maximale en agglomération ?',
-      'answers': [
-        {'id': 'a1', 'text': '30 km/h', 'is_correct': false, 'order': 0},
-        {'id': 'a2', 'text': '50 km/h', 'is_correct': true, 'order': 1},
-        {'id': 'a3', 'text': '70 km/h', 'is_correct': false, 'order': 2},
-        {'id': 'a4', 'text': '90 km/h', 'is_correct': false, 'order': 3},
-      ],
-      'explanation': 'La vitesse maximale en agglomération est de 50 km/h.',
-      'difficulty': 'EASY',
-    },
-  ];
-
-  void _startTimer() {
-    _timeLeft = 30;
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) { t.cancel(); return; }
-      setState(() {
-        if (_timeLeft > 0) {
-          _timeLeft--;
-        } else {
-          t.cancel();
-          if (!_isAnswered) _timeExpired();
-        }
-      });
-    });
-  }
-
-  void _timeExpired() {
-    setState(() {
-      _isAnswered = true;
-    });
-  }
-
-  void _selectAnswer(String answerId, bool isCorrect) {
-    if (_isAnswered) return;
-    _timer.cancel();
-    if (isCorrect) _correctAnswers++;
-    setState(() {
-      _selectedAnswerId = answerId;
-      _isAnswered = true;
-    });
-  }
-
-  void _nextQuestion() {
-    if (_currentIndex < _questions.length - 1) {
-      setState(() {
-        _currentIndex++;
-        _selectedAnswerId = null;
-        _isAnswered = false;
-        _timeLeft = 30;
-      });
-      _startTimer();
-    } else {
-      _timer.cancel();
-      context.pushReplacement('/student/quiz/result', extra: {
-        'score': ((_correctAnswers / _questions.length) * 100).round(),
-        'totalQuestions': _questions.length,
-        'correctAnswers': _correctAnswers,
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    _progressAnim.dispose();
-    _bounceAnim.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF8F9FA),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF1E65C5))),
-      );
-    }
+    final session = ref.watch(quizSessionProvider);
 
-    if (_questions.isEmpty) {
+    if (session == null) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Quiz'),
-          backgroundColor: const Color(0xFF1E65C5),
+          title: Text(widget.categoryName),
+          backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
         ),
-        body: const Center(child: Text('Aucune question disponible')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    final question = _questions[_currentIndex];
-    final answers = List<Map<String, dynamic>>.from(question['answers'])
-      ..sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
-    final correctId = answers.firstWhere((a) => a['is_correct'] == true)['id'];
-    final timerProgress = _timeLeft / 30;
+    if (session.isFinished) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.categoryName),
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final question = session.currentQuestion;
+    if (question == null) {
+      return const Scaffold(
+        body: Center(child: Text('Aucune question disponible')),
+      );
+    }
+
+    final progress =
+        (session.currentIndex + 1) / session.questions.length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E65C5),
+        title: Text(widget.categoryName),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close_rounded),
-          onPressed: () {
-            _timer.cancel();
-            context.pop();
-          },
+          icon: const Icon(Icons.close),
+          onPressed: () => _showQuitDialog(context),
         ),
-        title: Text(
-          widget.categoryId == 'exam' ? 'Examen Blanc' : 'Quiz',
-          style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600),
-        ),
-        actions: [
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${_currentIndex + 1}/${_questions.length}',
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.white.withValues(alpha: 0.3),
+            valueColor: const AlwaysStoppedAnimation(Colors.white),
           ),
-        ],
+        ),
       ),
       body: Column(
         children: [
-          // Barre de progression
+          // En-tête
           Container(
-            color: const Color(0xFF1E65C5),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: (_currentIndex + 1) / _questions.length,
-                            backgroundColor: Colors.white.withValues(alpha: 0.3),
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF7F27)),
-                            minHeight: 6,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Timer
-                      Container(
-                        width: 44, height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _timeLeft <= 10
-                                ? const Color(0xFFE74C3C)
-                                : Colors.white.withValues(alpha: 0.5),
-                            width: 2,
-                          ),
-                        ),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 44, height: 44,
-                              child: CircularProgressIndicator(
-                                value: timerProgress,
-                                strokeWidth: 3,
-                                backgroundColor: Colors.transparent,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  _timeLeft <= 10
-                                      ? const Color(0xFFE74C3C)
-                                      : Colors.white,
-                                ),
-                              ),
-                            ),
-                            Text('$_timeLeft',
-                                style: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: _timeLeft <= 10
-                                        ? const Color(0xFFFFCDD2)
-                                        : Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
+            width: double.infinity,
+            color: AppColors.primary,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Text(
+              'Question ${session.currentIndex + 1} / ${session.questions.length}',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+              textAlign: TextAlign.center,
             ),
           ),
 
@@ -287,260 +167,219 @@ class _QuizSessionScreenState extends State<QuizSessionScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Image si disponible
+                  if (question.imageUrl != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        question.imageUrl!,
+                        fit: BoxFit.contain,
+                        height: 180,
+                        width: double.infinity,
+                        errorBuilder: (_, __, ___) => const SizedBox(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
                   // Question
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 16, offset: const Offset(0, 4),
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1E65C5).withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'Question ${_currentIndex + 1}',
-                                style: const TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF1E65C5)),
-                              ),
-                            ),
-                            const Spacer(),
-                            _buildDifficultyBadge(question['difficulty'] ?? 'EASY'),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          question['question_text'] ?? '',
-                          style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1A1A2E),
-                              height: 1.5),
-                        ),
-                      ],
+                    child: Text(
+                      question.question,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600),
                     ),
                   ),
                   const SizedBox(height: 20),
 
                   // Réponses
-                  ...List.generate(answers.length, (i) {
-                    final answer = answers[i];
-                    final id = answer['id'] as String;
-                    final isSelected = _selectedAnswerId == id;
-                    final isCorrect = id == correctId;
-
-                    Color cardColor = Colors.white;
-                    Color borderColor = const Color(0xFFE5E7EB);
-                    Color textColor = const Color(0xFF1A1A2E);
-                    Widget? trailingIcon;
-
-                    if (_isAnswered) {
-                      if (isCorrect) {
-                        cardColor = const Color(0xFF27AE60).withValues(alpha: 0.08);
-                        borderColor = const Color(0xFF27AE60);
-                        textColor = const Color(0xFF1B7E41);
-                        trailingIcon = const Icon(Icons.check_circle_rounded,
-                            color: Color(0xFF27AE60), size: 22);
-                      } else if (isSelected && !isCorrect) {
-                        cardColor = const Color(0xFFE74C3C).withValues(alpha: 0.08);
-                        borderColor = const Color(0xFFE74C3C);
-                        textColor = const Color(0xFFB71C1C);
-                        trailingIcon = const Icon(Icons.cancel_rounded,
-                            color: Color(0xFFE74C3C), size: 22);
+                  ...List.generate(question.options.length, (i) {
+                    Color? optionColor;
+                    if (_answered) {
+                      if (i == question.correctOptionIndex) {
+                        optionColor = AppColors.success;
+                      } else if (i == _selectedAnswer) {
+                        optionColor = AppColors.error;
                       }
-                    } else if (isSelected) {
-                      cardColor = const Color(0xFF1E65C5).withValues(alpha: 0.08);
-                      borderColor = const Color(0xFF1E65C5);
-                      textColor = const Color(0xFF1E65C5);
+                    } else if (i == _selectedAnswer) {
+                      optionColor = AppColors.primary;
                     }
 
-                    final letters = ['A', 'B', 'C', 'D'];
-
-                    return GestureDetector(
-                      onTap: () => _selectAnswer(id, isCorrect),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: cardColor,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: borderColor, width: 1.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.04),
-                              blurRadius: 8, offset: const Offset(0, 2),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: InkWell(
+                        onTap: _answered ? null : () => _onAnswer(i),
+                        borderRadius: BorderRadius.circular(12),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: optionColor != null
+                                ? optionColor.withValues(alpha: 0.1)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: optionColor ??
+                                  Colors.grey.shade300,
+                              width: optionColor != null ? 2 : 1,
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 32, height: 32,
-                              decoration: BoxDecoration(
-                                color: isSelected && !_isAnswered
-                                    ? const Color(0xFF1E65C5)
-                                    : borderColor.withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  letters[i.clamp(0, 3)],
-                                  style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: isSelected && !_isAnswered
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: optionColor ??
+                                      Colors.grey.shade200,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    String.fromCharCode(65 + i),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: optionColor != null
                                           ? Colors.white
-                                          : borderColor),
+                                          : Colors.grey[700],
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                answer['text'] as String? ?? '',
-                                style: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 14,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  question.options[i],
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w500,
-                                    color: textColor),
+                                    color: optionColor,
+                                  ),
+                                ),
                               ),
-                            ),
-                            if (trailingIcon != null) trailingIcon,
-                          ],
+                              if (_answered) ...[
+                                if (i == question.correctOptionIndex)
+                                  Icon(Icons.check_circle,
+                                      color: AppColors.success)
+                                else if (i == _selectedAnswer)
+                                  Icon(Icons.cancel, color: AppColors.error),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     );
                   }),
 
                   // Explication
-                  if (_isAnswered && question['explanation'] != null) ...[
-                    const SizedBox(height: 8),
+                  if (_answered && question.explanation != null) ...[
+                    const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E65C5).withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: const Color(0xFF1E65C5).withValues(alpha: 0.3),
-                        ),
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.shade200),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.info_outline_rounded,
-                              color: Color(0xFF1E65C5), size: 20),
-                          const SizedBox(width: 10),
+                          Icon(Icons.info_outline,
+                              color: Colors.blue.shade700, size: 18),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              question['explanation'] as String? ?? '',
-                              style: const TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 13,
-                                  color: Color(0xFF1E65C5),
-                                  height: 1.5),
+                              question.explanation!,
+                              style: TextStyle(
+                                  color: Colors.blue.shade800,
+                                  fontSize: 13),
                             ),
                           ),
                         ],
                       ),
                     ),
                   ],
+
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
           ),
 
-          // Bouton suivant
-          if (_isAnswered)
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 16, offset: const Offset(0, -4),
+          // Bouton Suivant / Valider
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed:
+                    _answered ? _next : (_selectedAnswer != null ? _next : null),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _answered
+                      ? (_selectedAnswer == question.correctOptionIndex
+                          ? AppColors.success
+                          : AppColors.primary)
+                      : AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  onPressed: _nextQuestion,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _currentIndex < _questions.length - 1
-                        ? const Color(0xFF1E65C5)
-                        : const Color(0xFFFF7F27),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30)),
-                    elevation: 3,
-                  ),
-                  child: Text(
-                    _currentIndex < _questions.length - 1
-                        ? 'Question suivante →'
-                        : 'Voir les résultats 🏆',
-                    style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600),
-                  ),
+                ),
+                child: Text(
+                  _answered
+                      ? (session.isLastQuestion
+                          ? 'Voir les résultats'
+                          : 'Question suivante')
+                      : 'Valider',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDifficultyBadge(String difficulty) {
-    Color color;
-    String label;
-    switch (difficulty) {
-      case 'HARD':
-        color = const Color(0xFFE74C3C);
-        label = 'Difficile';
-        break;
-      case 'MEDIUM':
-        color = const Color(0xFFF39C12);
-        label = 'Moyen';
-        break;
-      default:
-        color = const Color(0xFF27AE60);
-        label = 'Facile';
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
+  void _showQuitDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quitter le quiz ?'),
+        content: const Text(
+            'Votre progression sera perdue. Voulez-vous vraiment quitter ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Continuer'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(quizSessionProvider.notifier).reset();
+              Navigator.pop(ctx);
+              context.go('/student/quiz');
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white),
+            child: const Text('Quitter'),
+          ),
+        ],
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: color)),
     );
   }
 }
