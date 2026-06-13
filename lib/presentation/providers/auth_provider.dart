@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/config/supabase_config.dart';
 import '../../data/models/profile_model.dart';
 import '../../data/repositories/supabase_auth_repository.dart';
 import '../../data/repositories/supabase_profile_repository.dart';
@@ -29,7 +28,7 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
   return ref.watch(authRepositoryProvider).authStateChanges;
 });
 
-/// Utilisateur Supabase actuel (peut être null si non connecté)
+/// Utilisateur Supabase actuel (null si non connecté)
 final currentUserProvider = Provider<User?>((ref) {
   return Supabase.instance.client.auth.currentUser;
 });
@@ -94,6 +93,7 @@ final authActionsProvider = Provider<AuthActions>((ref) {
 
 class AuthActions {
   final AuthRepository _authRepo;
+  // ignore: unused_field
   final ProfileRepository _profileRepo;
   final Ref _ref;
 
@@ -108,24 +108,23 @@ class AuthActions {
     await _ref.read(currentProfileProvider.notifier).load();
   }
 
+  /// Inscription : le rôle est TOUJOURS 'student'.
+  /// Assigné automatiquement par le trigger handle_new_user() dans Supabase.
+  /// Aucun paramètre role ou inviteCode ici.
   Future<void> signUp({
     required String email,
     required String password,
     required String fullName,
     String? phone,
-    String role = SupabaseConfig.roleStudent,
-    String? inviteCode,
   }) async {
     await _authRepo.signUpWithEmail(
       email: email,
       password: password,
       fullName: fullName,
       phone: phone,
-      role: role,
-      inviteCode: inviteCode,
     );
-    // Charger le profil créé par le trigger Supabase
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Attendre que le trigger Supabase crée le profil
+    await Future.delayed(const Duration(milliseconds: 800));
     await _ref.read(currentProfileProvider.notifier).load();
   }
 

@@ -22,7 +22,6 @@ import '../../presentation/screens/admin/planning_screen.dart';
 import '../../presentation/screens/admin/payments_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  // Écouter les changements d'auth pour rafraîchir le router
   final notifier = RouterNotifier(ref);
 
   return GoRouter(
@@ -31,24 +30,57 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final user = Supabase.instance.client.auth.currentUser;
       final isLoggedIn = user != null;
-      final isOnAuthPage = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register' ||
-          state.matchedLocation == '/';
+      final currentPath = state.matchedLocation;
 
-      // Pas connecté → login (sauf splash/login/register)
+      final isOnAuthPage = currentPath == '/login' ||
+          currentPath == '/register' ||
+          currentPath == '/';
+
+      final isOnAdminRoute = currentPath.startsWith('/admin');
+      final isOnStudentRoute = currentPath.startsWith('/student');
+
+      // ── 1. Non connecté → login (sauf splash/auth) ──────────────────────
       if (!isLoggedIn && !isOnAuthPage) {
         return '/login';
       }
 
-      // Connecté → on ne reste pas sur les pages d'auth
-      if (isLoggedIn && isOnAuthPage && state.matchedLocation != '/') {
+      // ── 2. Connecté sur une page d'auth → rediriger selon rôle ──────────
+      if (isLoggedIn && isOnAuthPage && currentPath != '/') {
         final profile = ref.read(currentProfileProvider).valueOrNull;
-        if (profile == null) return null; // Attente du profil
+        if (profile == null) return null; // Attendre le chargement du profil
 
         if (profile.role == SupabaseConfig.roleAdmin) {
           return '/admin/home';
         } else {
           return '/student/home';
+        }
+      }
+
+      // ── 3. GUARD ADMIN : Étudiant tentant d'accéder à /admin/* ──────────
+      // SÉCURITÉ CRITIQUE : un étudiant ne peut JAMAIS accéder au dashboard admin
+      if (isLoggedIn && isOnAdminRoute) {
+        final profile = ref.read(currentProfileProvider).valueOrNull;
+
+        // Si le profil n'est pas encore chargé, attendre
+        if (profile == null) return null;
+
+        // Si l'utilisateur n'est pas admin → bloquer et rediriger
+        if (profile.role != SupabaseConfig.roleAdmin) {
+          debugPrint(
+            '[Router] ACCÈS BLOQUÉ: ${profile.fullName} (${profile.role}) '
+            'tentait d\'accéder à $currentPath → redirection /student/home',
+          );
+          return '/student/home';
+        }
+      }
+
+      // ── 4. GUARD STUDENT : Admin tentant d'accéder à /student/* ─────────
+      // Un admin ne doit pas utiliser l'espace élève (évite la confusion)
+      if (isLoggedIn && isOnStudentRoute) {
+        final profile = ref.read(currentProfileProvider).valueOrNull;
+
+        if (profile != null && profile.role == SupabaseConfig.roleAdmin) {
+          return '/admin/home';
         }
       }
 
@@ -73,8 +105,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Espace Élève (avec bottom nav) ────────────────────────────────
       ShellRoute(
-        builder: (context, state, child) =>
-            StudentShell(child: child),
+        builder: (context, state, child) => StudentShell(child: child),
         routes: [
           GoRoute(
             path: '/student/home',
@@ -88,7 +119,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: 'session/:categoryId',
                 builder: (context, state) => QuizSessionScreen(
                   categoryId: state.pathParameters['categoryId']!,
-                  categoryName: state.uri.queryParameters['name'] ?? 'Quiz',
+                  categoryName:
+                      state.uri.queryParameters['name'] ?? 'Quiz',
                 ),
                 routes: [
                   GoRoute(
@@ -116,8 +148,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Espace Admin (avec bottom nav) ────────────────────────────────
       ShellRoute(
-        builder: (context, state, child) =>
-            AdminShell(child: child),
+        builder: (context, state, child) => AdminShell(child: child),
         routes: [
           GoRoute(
             path: '/admin/home',
@@ -173,11 +204,17 @@ class StudentShell extends ConsumerWidget {
     final location = GoRouterState.of(context).matchedLocation;
     int currentIndex = 0;
 
-    if (location.startsWith('/student/home')) currentIndex = 0;
-    else if (location.startsWith('/student/quiz')) currentIndex = 1;
-    else if (location.startsWith('/student/agenda')) currentIndex = 2;
-    else if (location.startsWith('/student/livret')) currentIndex = 3;
-    else if (location.startsWith('/student/profile')) currentIndex = 4;
+    if (location.startsWith('/student/home')) {
+      currentIndex = 0;
+    } else if (location.startsWith('/student/quiz')) {
+      currentIndex = 1;
+    } else if (location.startsWith('/student/agenda')) {
+      currentIndex = 2;
+    } else if (location.startsWith('/student/livret')) {
+      currentIndex = 3;
+    } else if (location.startsWith('/student/profile')) {
+      currentIndex = 4;
+    }
 
     return Scaffold(
       body: child,
@@ -247,12 +284,18 @@ class AdminShell extends ConsumerWidget {
     final location = GoRouterState.of(context).matchedLocation;
     int currentIndex = 0;
 
-    if (location.startsWith('/admin/home')) currentIndex = 0;
-    else if (location.startsWith('/admin/students')) currentIndex = 1;
-    else if (location.startsWith('/admin/planning')) currentIndex = 2;
-    else if (location.startsWith('/admin/payments')) currentIndex = 3;
-    else if (location.startsWith('/admin/instructors') ||
-        location.startsWith('/admin/vehicles')) currentIndex = 4;
+    if (location.startsWith('/admin/home')) {
+      currentIndex = 0;
+    } else if (location.startsWith('/admin/students')) {
+      currentIndex = 1;
+    } else if (location.startsWith('/admin/planning')) {
+      currentIndex = 2;
+    } else if (location.startsWith('/admin/payments')) {
+      currentIndex = 3;
+    } else if (location.startsWith('/admin/instructors') ||
+        location.startsWith('/admin/vehicles')) {
+      currentIndex = 4;
+    }
 
     return Scaffold(
       body: child,

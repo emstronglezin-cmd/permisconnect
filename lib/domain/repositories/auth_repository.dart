@@ -13,14 +13,13 @@ abstract class AuthRepository {
     required String password,
   });
 
-  /// Inscription avec email + mot de passe
+  /// Inscription avec email + mot de passe.
+  /// SÉCURITÉ : Pas de paramètre role — toujours 'student' via trigger Supabase.
   Future<AuthResponse> signUpWithEmail({
     required String email,
     required String password,
     required String fullName,
     String? phone,
-    String? role,
-    String? inviteCode,
   });
 
   /// Déconnexion

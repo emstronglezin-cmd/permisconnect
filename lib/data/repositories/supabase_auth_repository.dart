@@ -1,7 +1,11 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/config/supabase_config.dart';
 import '../../domain/repositories/auth_repository.dart';
 
+/// Implémentation Supabase du repository d'authentification.
+///
+/// SÉCURITÉ : signUpWithEmail() n'envoie JAMAIS de rôle dans les métadonnées.
+/// Le rôle 'student' est assigné exclusivement par le trigger PostgreSQL
+/// handle_new_user() côté Supabase (SECURITY DEFINER).
 class SupabaseAuthRepository implements AuthRepository {
   final SupabaseClient _client;
 
@@ -20,7 +24,7 @@ class SupabaseAuthRepository implements AuthRepository {
     required String password,
   }) async {
     final response = await _client.auth.signInWithPassword(
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       password: password,
     );
     return response;
@@ -32,29 +36,24 @@ class SupabaseAuthRepository implements AuthRepository {
     required String password,
     required String fullName,
     String? phone,
-    String? role,
-    String? inviteCode,
   }) async {
+    // SÉCURITÉ : On n'envoie QUE les informations de profil basiques.
+    // Le rôle est TOUJOURS défini à 'student' par le trigger Supabase.
+    // Aucun code d'invitation, aucun champ role ici.
     final metadata = <String, dynamic>{
       'full_name': fullName.trim(),
-      'role': role ?? SupabaseConfig.roleStudent,
     };
 
-    if (phone != null && phone.isNotEmpty) {
+    if (phone != null && phone.trim().isNotEmpty) {
       metadata['phone'] = phone.trim();
     }
 
-    // Code d'invitation admin : transmis dans les métadonnées
-    // Le trigger Supabase vérifiera la validité
-    if (inviteCode != null && inviteCode.isNotEmpty) {
-      metadata['invite_code'] = inviteCode.trim().toUpperCase();
-    }
-
     final response = await _client.auth.signUp(
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       password: password,
       data: metadata,
     );
+
     return response;
   }
 
@@ -65,17 +64,14 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> resetPassword(String email) async {
-    await _client.auth.resetPasswordForEmail(email.trim());
+    await _client.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+    );
   }
 
   @override
   Future<bool> isEmailAvailable(String email) async {
-    try {
-      // On tente de récupérer le profil associé à cet email
-      // Si Supabase retourne une erreur d'auth, c'est que l'email existe
-      return true; // Simplifié — la vraie validation se fait à l'inscription
-    } catch (_) {
-      return false;
-    }
+    // La validation réelle se fait lors de l'inscription
+    return true;
   }
 }

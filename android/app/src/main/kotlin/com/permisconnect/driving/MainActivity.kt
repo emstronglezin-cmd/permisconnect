@@ -1,5 +1,6 @@
-package com.permisconnect.permis_connect
+package com.permisconnect.driving
 
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity : FlutterActivity()
+
