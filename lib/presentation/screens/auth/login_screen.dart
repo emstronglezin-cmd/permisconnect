@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/config/supabase_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../presentation/providers/auth_provider.dart';
 
@@ -28,49 +30,69 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      debugPrint('[LoginScreen] Tentative connexion: ${_emailCtrl.text.trim()}');
+
       await ref.read(authActionsProvider).signIn(
-            email: _emailCtrl.text,
+            email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
 
-      // Attendre que le profil soit chargé pour rediriger
-      await Future.delayed(const Duration(milliseconds: 800));
-      final profile = ref.read(currentProfileProvider).valueOrNull;
+      if (!mounted) return;
 
-      if (mounted) {
-        if (profile?.isAdmin == true) {
-          context.go('/admin/home');
-        } else {
-          context.go('/student/home');
-        }
+      // Lire le profil et rediriger selon le rôle
+      final profile = ref.read(currentProfileProvider).valueOrNull;
+      debugPrint('[LoginScreen] Profil après login: ${profile?.role}');
+
+      if (profile?.role == SupabaseConfig.roleAdmin) {
+        context.go('/admin/home');
+      } else {
+        context.go('/student/home');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = _parseAuthError(e.toString());
-        _isLoading = false;
-      });
+      debugPrint('[LoginScreen] Erreur connexion: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = _parseAuthError(e.toString());
+          _isLoading = false;
+        });
+      }
     }
   }
 
   String _parseAuthError(String error) {
-    if (error.contains('Invalid login credentials')) {
+    final lower = error.toLowerCase();
+
+    if (lower.contains('invalid login credentials') ||
+        lower.contains('invalid_credentials') ||
+        lower.contains('email or password')) {
       return 'Email ou mot de passe incorrect.';
     }
-    if (error.contains('Email not confirmed')) {
-      return 'Veuillez confirmer votre adresse email.';
+    if (lower.contains('email not confirmed') ||
+        lower.contains('not confirmed')) {
+      return 'Votre email n\'est pas encore confirmé. Vérifiez votre boîte mail.';
     }
-    if (error.contains('Too many requests')) {
+    if (lower.contains('too many requests') ||
+        lower.contains('rate limit')) {
       return 'Trop de tentatives. Réessayez dans quelques minutes.';
     }
-    if (error.contains('network')) {
-      return 'Problème de connexion. Vérifiez votre réseau.';
+    if (lower.contains('network') ||
+        lower.contains('connection') ||
+        lower.contains('socket')) {
+      return 'Problème de connexion réseau.';
     }
+    if (lower.contains('user not found') ||
+        lower.contains('no user')) {
+      return 'Aucun compte trouvé avec cet email.';
+    }
+
+    debugPrint('[LoginScreen] Erreur non gérée: $error');
     return 'Erreur de connexion. Réessayez.';
   }
 
@@ -88,7 +110,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Logo
+                // ── Logo ───────────────────────────────────────────────
                 Center(
                   child: Container(
                     width: 80,
@@ -139,10 +161,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                // Champ Email
+                // ── Email ──────────────────────────────────────────────
                 TextFormField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: 'Adresse email',
                     prefixIcon: const Icon(Icons.email_outlined),
@@ -151,17 +175,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   validator: (v) {
-                    if (v == null || v.isEmpty) return 'Email requis';
+                    if (v == null || v.trim().isEmpty) return 'Email requis';
                     if (!v.contains('@')) return 'Email invalide';
                     return null;
                   },
                 ),
                 const SizedBox(height: 16),
 
-                // Champ Mot de passe
+                // ── Mot de passe ───────────────────────────────────────
                 TextFormField(
                   controller: _passwordCtrl,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _signIn(),
                   decoration: InputDecoration(
                     labelText: 'Mot de passe',
                     prefixIcon: const Icon(Icons.lock_outlined),
@@ -186,7 +212,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Mot de passe oublié
+                // ── Mot de passe oublié ────────────────────────────────
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -195,7 +221,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
 
-                // Message d'erreur
+                // ── Message d'erreur ───────────────────────────────────
                 if (_errorMessage != null) ...[
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -223,7 +249,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                 const SizedBox(height: 8),
 
-                // Bouton Connexion
+                // ── Bouton Connexion ───────────────────────────────────
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -232,6 +258,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          AppColors.primary.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -256,14 +284,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Lien inscription
+                // ── Lien inscription ───────────────────────────────────
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
                         'Pas encore de compte ? ',
-                        style: TextStyle(color: AppColors.textSecondary),
+                        style:
+                            TextStyle(color: AppColors.textSecondary),
                       ),
                       TextButton(
                         onPressed: () => context.push('/register'),
@@ -314,17 +343,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ElevatedButton(
             onPressed: () async {
               if (emailCtrl.text.isNotEmpty) {
-                await ref
-                    .read(authActionsProvider)
-                    .resetPassword(emailCtrl.text);
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Email de réinitialisation envoyé !'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                try {
+                  await ref
+                      .read(authActionsProvider)
+                      .resetPassword(emailCtrl.text.trim());
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('Email de réinitialisation envoyé !'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Erreur: ${e.toString()}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               }
             },

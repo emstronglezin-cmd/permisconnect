@@ -37,8 +37,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     _animCtrl.forward();
 
-    // Après 2.5s, vérifier l'état d'auth et rediriger
-    Future.delayed(const Duration(milliseconds: 2500), _navigate);
+    // Naviguer après 2s
+    Future.delayed(const Duration(milliseconds: 2000), _navigate);
   }
 
   @override
@@ -53,19 +53,30 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
-      context.go('/login');
+      // Non connecté → login
+      if (mounted) context.go('/login');
       return;
     }
 
-    // Charger le profil si connecté
+    // Connecté → charger le profil et attendre
     await ref.read(currentProfileProvider.notifier).load();
+
     if (!mounted) return;
+
+    final profileState = ref.read(currentProfileProvider);
+
+    // Si encore en chargement, attendre un peu
+    if (profileState.isLoading) {
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (!mounted) return;
+    }
 
     final profile = ref.read(currentProfileProvider).valueOrNull;
 
     if (profile?.role == SupabaseConfig.roleAdmin) {
       context.go('/admin/home');
     } else {
+      // Pas de profil ou role student → espace élève
       context.go('/student/home');
     }
   }

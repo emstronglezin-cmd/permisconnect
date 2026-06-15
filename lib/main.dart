@@ -26,10 +26,10 @@ void main() async {
   // Initialisation Hive (stockage local offline)
   await Hive.initFlutter();
 
-  // Initialisation Supabase
+  // Initialisation Supabase avec publishableKey (nouveau format Supabase)
   await Supabase.initialize(
     url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.anonKey,
+    anonKey: SupabaseConfig.publishableKey,
   );
 
   runApp(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -30,56 +31,56 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final user = Supabase.instance.client.auth.currentUser;
       final isLoggedIn = user != null;
-      final currentPath = state.matchedLocation;
+      final path = state.matchedLocation;
 
-      final isOnAuthPage = currentPath == '/login' ||
-          currentPath == '/register' ||
-          currentPath == '/';
+      // Pages publiques (pas de redirect nécessaire)
+      final isPublicPage =
+          path == '/' || path == '/login' || path == '/register';
 
-      final isOnAdminRoute = currentPath.startsWith('/admin');
-      final isOnStudentRoute = currentPath.startsWith('/student');
-
-      // ── 1. Non connecté → login (sauf splash/auth) ──────────────────────
-      if (!isLoggedIn && !isOnAuthPage) {
+      // ── Non connecté → login ────────────────────────────────────────
+      if (!isLoggedIn) {
+        if (isPublicPage) return null; // déjà sur une page publique
+        debugPrint('[Router] Non connecté, redirect /login depuis $path');
         return '/login';
       }
 
-      // ── 2. Connecté sur une page d'auth → rediriger selon rôle ──────────
-      if (isLoggedIn && isOnAuthPage && currentPath != '/') {
-        final profile = ref.read(currentProfileProvider).valueOrNull;
-        if (profile == null) return null; // Attendre le chargement du profil
+      // ── Connecté sur splash → naviguer selon rôle ──────────────────
+      // Ne pas rediriger depuis /login et /register (les écrans gèrent eux-mêmes)
+      if (isLoggedIn && path == '/') {
+        final profileState = ref.read(currentProfileProvider);
 
-        if (profile.role == SupabaseConfig.roleAdmin) {
-          return '/admin/home';
-        } else {
-          return '/student/home';
-        }
+        // Profil en cours de chargement → attendre (ne pas rediriger)
+        if (profileState.isLoading) return null;
+
+        final profile = profileState.valueOrNull;
+        if (profile == null) return null; // Attendre le profil
+
+        final dest = profile.role == SupabaseConfig.roleAdmin
+            ? '/admin/home'
+            : '/student/home';
+        debugPrint('[Router] Splash → $dest (role=${profile.role})');
+        return dest;
       }
 
-      // ── 3. GUARD ADMIN : Étudiant tentant d'accéder à /admin/* ──────────
-      // SÉCURITÉ CRITIQUE : un étudiant ne peut JAMAIS accéder au dashboard admin
-      if (isLoggedIn && isOnAdminRoute) {
+      // ── GUARD ADMIN : Étudiant sur /admin/* ─────────────────────────
+      if (isLoggedIn && path.startsWith('/admin')) {
         final profile = ref.read(currentProfileProvider).valueOrNull;
+        if (profile == null) return null; // Profil pas encore chargé
 
-        // Si le profil n'est pas encore chargé, attendre
-        if (profile == null) return null;
-
-        // Si l'utilisateur n'est pas admin → bloquer et rediriger
         if (profile.role != SupabaseConfig.roleAdmin) {
           debugPrint(
-            '[Router] ACCÈS BLOQUÉ: ${profile.fullName} (${profile.role}) '
-            'tentait d\'accéder à $currentPath → redirection /student/home',
-          );
+              '[Router] BLOQUÉ: ${profile.fullName} (${profile.role}) -> /admin, redirect /student/home');
           return '/student/home';
         }
       }
 
-      // ── 4. GUARD STUDENT : Admin tentant d'accéder à /student/* ─────────
-      // Un admin ne doit pas utiliser l'espace élève (évite la confusion)
-      if (isLoggedIn && isOnStudentRoute) {
+      // ── GUARD STUDENT : Admin sur /student/* ────────────────────────
+      if (isLoggedIn && path.startsWith('/student')) {
         final profile = ref.read(currentProfileProvider).valueOrNull;
+        if (profile == null) return null;
 
-        if (profile != null && profile.role == SupabaseConfig.roleAdmin) {
+        if (profile.role == SupabaseConfig.roleAdmin) {
+          debugPrint('[Router] Admin sur /student, redirect /admin/home');
           return '/admin/home';
         }
       }
@@ -180,19 +181,22 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-// ─── Notifier pour rafraîchir le router quand l'auth change ──────────────────
+// ─── Notifier ────────────────────────────────────────────────────────────────
 
 class RouterNotifier extends ChangeNotifier {
   final Ref _ref;
 
   RouterNotifier(this._ref) {
     _ref.listen(authStateProvider, (_, __) => notifyListeners());
-    _ref.listen(currentProfileProvider, (_, __) => notifyListeners());
+    _ref.listen(currentProfileProvider, (_, next) {
+      // Ne notifier que quand le profil est réellement chargé (pas en loading)
+      if (!next.isLoading) notifyListeners();
+    });
   }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// STUDENT SHELL — Bottom Navigation Bar pour les élèves
+// STUDENT SHELL
 // ═════════════════════════════════════════════════════════════════════════════
 
 class StudentShell extends ConsumerWidget {
@@ -272,7 +276,7 @@ class StudentShell extends ConsumerWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ADMIN SHELL — Bottom Navigation Bar pour les admins
+// ADMIN SHELL
 // ═════════════════════════════════════════════════════════════════════════════
 
 class AdminShell extends ConsumerWidget {

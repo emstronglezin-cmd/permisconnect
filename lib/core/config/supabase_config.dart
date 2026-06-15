@@ -1,16 +1,13 @@
 /// Configuration Supabase — PermisConnect
-/// Les clés sont intégrées ici (anon key = publique, sans risque)
-/// La clé privée LeekPay est UNIQUEMENT dans les Edge Functions Supabase
+/// La publishableKey (sb_publishable_...) est la clé publique du nouveau format Supabase.
+/// La clé privée LeekPay est UNIQUEMENT dans les Edge Functions Supabase.
 
 class SupabaseConfig {
   static const String url = 'https://hruisploxlmhigbsnzbn.supabase.co';
 
-  /// Clé publique Supabase (anon key) — sûre côté client
-  static const String anonKey =
-      'sb_publishable_fNfoJ2htxpDorg2MXpRkTg_hDHnLzgF';
-
-  /// Clé publique LeekPay (pour initier le paiement côté client)
-  static const String leekPayPublicKey =
+  /// Publishable Key Supabase (format nouveau — remplace l'anon key JWT)
+  /// Utilisée avec publishableKey: dans Supabase.initialize()
+  static const String publishableKey =
       'sb_publishable_fNfoJ2htxpDorg2MXpRkTg_hDHnLzgF';
 
   // Noms des tables Supabase
@@ -27,7 +24,6 @@ class SupabaseConfig {
   static const String tableQuizAttempts = 'quiz_attempts';
   static const String tableDrivingSkills = 'driving_skills';
   static const String tableStudentSkills = 'student_skills';
-  static const String tableAdminInvitations = 'admin_invitations';
 
   // Noms des Edge Functions
   static const String fnCreatePayment = 'create-payment';

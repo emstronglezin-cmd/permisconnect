@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,7 +7,7 @@ import '../../../presentation/providers/auth_provider.dart';
 
 /// Écran d'inscription — UNIQUEMENT pour les élèves.
 /// Aucune option administrateur n'est disponible ici.
-/// Les administrateurs sont créés manuellement dans Supabase.
+/// Les administrateurs sont créés manuellement dans Supabase Dashboard.
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -26,6 +27,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscureConfirm = true;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _emailConfirmationRequired = false;
 
   @override
   void dispose() {
@@ -43,10 +45,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _emailConfirmationRequired = false;
     });
 
     try {
-      // Inscription : rôle TOUJOURS 'student', géré par le trigger Supabase
+      debugPrint('[RegisterScreen] Tentative inscription: ${_emailCtrl.text.trim()}');
+
       await ref.read(authActionsProvider).signUp(
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
@@ -56,11 +60,29 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 : _phoneCtrl.text.trim(),
           );
 
+      if (!mounted) return;
+
+      // Vérifier si l'utilisateur a une session active
+      final client = ref.read(supabaseClientProvider);
+      final session = client.auth.currentSession;
+
+      debugPrint('[RegisterScreen] Session après signUp: ${session != null}');
+
+      if (session == null) {
+        // Email de confirmation requis par Supabase
+        setState(() {
+          _isLoading = false;
+          _emailConfirmationRequired = true;
+        });
+        return;
+      }
+
+      // Session active → rediriger vers espace élève
       if (mounted) {
-        // Redirection vers l'espace élève après inscription réussie
         context.go('/student/home');
       }
     } catch (e) {
+      debugPrint('[RegisterScreen] Erreur inscription: $e');
       if (mounted) {
         setState(() {
           _errorMessage = _parseRegisterError(e.toString());
@@ -72,42 +94,60 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   String _parseRegisterError(String error) {
     final lower = error.toLowerCase();
+    debugPrint('[RegisterScreen] Parse error: $error');
 
     if (lower.contains('user already registered') ||
         lower.contains('already been registered') ||
-        lower.contains('email address is already')) {
-      return 'Cette adresse email est déjà associée à un compte. Connectez-vous.';
+        lower.contains('already registered') ||
+        lower.contains('email address is already') ||
+        lower.contains('duplicate')) {
+      return 'Cette adresse email est déjà utilisée. Connectez-vous ou réinitialisez votre mot de passe.';
     }
     if (lower.contains('password should be at least') ||
-        lower.contains('password must be')) {
-      return 'Le mot de passe doit contenir au moins 6 caractères.';
+        lower.contains('password must be') ||
+        lower.contains('weak_password') ||
+        lower.contains('at least 6')) {
+      return 'Mot de passe trop faible. Utilisez au moins 8 caractères.';
     }
     if (lower.contains('unable to validate email') ||
-        lower.contains('invalid email')) {
-      return 'Adresse email invalide. Vérifiez le format.';
+        lower.contains('invalid email') ||
+        lower.contains('email is invalid')) {
+      return 'Adresse email invalide. Vérifiez le format (ex: nom@domaine.com).';
     }
     if (lower.contains('signup is disabled') ||
-        lower.contains('signups not allowed')) {
-      return 'Les inscriptions sont temporairement désactivées.';
+        lower.contains('signups not allowed') ||
+        lower.contains('not allowed')) {
+      return 'Les inscriptions sont temporairement désactivées. Réessayez plus tard.';
     }
-    if (lower.contains('email rate limit') || lower.contains('too many')) {
-      return 'Trop de tentatives. Attendez quelques minutes.';
+    if (lower.contains('rate limit') ||
+        lower.contains('too many requests') ||
+        lower.contains('over_email_send_rate_limit')) {
+      return 'Trop de tentatives. Attendez quelques minutes avant de réessayer.';
     }
-    if (lower.contains('network') || lower.contains('connection')) {
-      return 'Erreur de connexion. Vérifiez votre réseau.';
+    if (lower.contains('network') ||
+        lower.contains('connection') ||
+        lower.contains('socket') ||
+        lower.contains('timeout')) {
+      return 'Problème de réseau. Vérifiez votre connexion internet.';
     }
-    if (lower.contains('timeout')) {
-      return 'La connexion a expiré. Réessayez.';
+    if (lower.contains('invalid api key') ||
+        lower.contains('unauthorized') ||
+        lower.contains('401')) {
+      return 'Erreur de configuration. Contactez le support.';
     }
 
-    // Log l'erreur complète pour débogage
-    debugPrint('[RegisterScreen] Erreur inscription : $error');
-    return 'Une erreur est survenue. Vérifiez vos informations et réessayez.';
+    debugPrint('[RegisterScreen] Erreur non gérée: $error');
+    return 'Erreur: ${error.length > 80 ? error.substring(0, 80) : error}';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // Écran de confirmation email
+    if (_emailConfirmationRequired) {
+      return _buildEmailConfirmationScreen(theme);
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -127,7 +167,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── En-tête ───────────────────────────────────────────────
+                // ── En-tête ──────────────────────────────────────────
                 Text(
                   'Créer un compte',
                   style: theme.textTheme.headlineSmall?.copyWith(
@@ -143,7 +183,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // ── Badge Élève ────────────────────────────────────────────
+                // ── Badge Élève ──────────────────────────────────────
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
@@ -159,7 +199,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.12),
+                          color:
+                              AppColors.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
@@ -201,13 +242,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 const SizedBox(height: 24),
 
-                // ── Nom complet ────────────────────────────────────────────
+                // ── Nom complet ──────────────────────────────────────
                 TextFormField(
                   controller: _nameCtrl,
                   textCapitalization: TextCapitalization.words,
                   textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
-                    labelText: 'Nom complet',
+                    labelText: 'Nom complet *',
                     hintText: 'Ex : Kondabo Abdoul Aziz',
                     prefixIcon: const Icon(Icons.person_outlined),
                     border: OutlineInputBorder(
@@ -226,14 +267,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── Email ──────────────────────────────────────────────────
+                // ── Email ────────────────────────────────────────────
                 TextFormField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   autocorrect: false,
                   decoration: InputDecoration(
-                    labelText: 'Adresse email',
+                    labelText: 'Adresse email *',
                     hintText: 'exemple@email.com',
                     prefixIcon: const Icon(Icons.email_outlined),
                     border: OutlineInputBorder(
@@ -244,7 +285,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     if (v == null || v.trim().isEmpty) {
                       return 'L\'email est requis';
                     }
-                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$')
                         .hasMatch(v.trim())) {
                       return 'Format d\'email invalide';
                     }
@@ -253,7 +294,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── Téléphone (optionnel) ──────────────────────────────────
+                // ── Téléphone (optionnel) ────────────────────────────
                 TextFormField(
                   controller: _phoneCtrl,
                   keyboardType: TextInputType.phone,
@@ -269,13 +310,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── Mot de passe ───────────────────────────────────────────
+                // ── Mot de passe ─────────────────────────────────────
                 TextFormField(
                   controller: _passwordCtrl,
                   obscureText: _obscurePassword,
                   textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
-                    labelText: 'Mot de passe',
+                    labelText: 'Mot de passe *',
                     hintText: 'Min. 8 caractères',
                     prefixIcon: const Icon(Icons.lock_outlined),
                     suffixIcon: IconButton(
@@ -303,14 +344,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── Confirmation mot de passe ──────────────────────────────
+                // ── Confirmation mot de passe ────────────────────────
                 TextFormField(
                   controller: _confirmCtrl,
                   obscureText: _obscureConfirm,
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _register(),
                   decoration: InputDecoration(
-                    labelText: 'Confirmer le mot de passe',
+                    labelText: 'Confirmer le mot de passe *',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -338,7 +379,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 const SizedBox(height: 20),
 
-                // ── Message d'erreur ───────────────────────────────────────
+                // ── Message d'erreur ─────────────────────────────────
                 if (_errorMessage != null) ...[
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -370,7 +411,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                // ── Bouton inscription ─────────────────────────────────────
+                // ── Bouton inscription ───────────────────────────────
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -407,7 +448,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 const SizedBox(height: 20),
 
-                // ── Lien vers connexion ────────────────────────────────────
+                // ── Lien vers connexion ──────────────────────────────
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -430,6 +471,100 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 16),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Écran affiché si Supabase exige une confirmation email
+  Widget _buildEmailConfirmationScreen(ThemeData theme) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.mark_email_read_outlined,
+                  size: 48,
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'Vérifiez vos emails',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Un lien de confirmation a été envoyé à :',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _emailCtrl.text.trim(),
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Cliquez sur le lien dans l\'email pour activer votre compte, puis connectez-vous.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 36),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () => context.go('/login'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Aller à la connexion',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _emailConfirmationRequired = false;
+                    _isLoading = false;
+                  });
+                },
+                child: const Text('Modifier mon email'),
+              ),
+            ],
           ),
         ),
       ),
