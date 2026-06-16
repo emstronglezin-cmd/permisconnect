@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../presentation/providers/auth_provider.dart';
 
-/// Écran d'inscription — UNIQUEMENT pour les élèves.
-/// Aucune option administrateur n'est disponible ici.
-/// Les administrateurs sont créés manuellement dans Supabase Dashboard.
+/// Inscription élève uniquement.
+/// Gère 3 cas Supabase :
+///   1. Inscription réussie + session → espace élève direct
+///   2. Inscription réussie, confirmation email requise → écran de confirmation
+///   3. Email déjà utilisé → message clair + lien vers login
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -17,43 +19,44 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
+  final _nameCtrl   = TextEditingController();
+  final _emailCtrl  = TextEditingController();
+  final _phoneCtrl  = TextEditingController();
+  final _passCtrl   = TextEditingController();
   final _confirmCtrl = TextEditingController();
 
-  bool _obscurePassword = true;
+  bool _obscurePass    = true;
   bool _obscureConfirm = true;
-  bool _isLoading = false;
+  bool _isLoading      = false;
   String? _errorMessage;
-  bool _emailConfirmationRequired = false;
+
+  // État : null=formulaire, 'confirm'=attente confirmation email
+  String? _uiState;
+  String? _registeredEmail;
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
-    _passwordCtrl.dispose();
+    _passCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
   }
 
+  // ── Soumission ────────────────────────────────────────────────────────────────
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _emailConfirmationRequired = false;
     });
 
     try {
-      debugPrint('[RegisterScreen] Tentative inscription: ${_emailCtrl.text.trim()}');
-
-      await ref.read(authActionsProvider).signUp(
-            email: _emailCtrl.text.trim(),
-            password: _passwordCtrl.text,
+      final result = await ref.read(authActionsProvider).signUp(
+            email:    _emailCtrl.text.trim(),
+            password: _passCtrl.text,
             fullName: _nameCtrl.text.trim(),
             phone: _phoneCtrl.text.trim().isEmpty
                 ? null
@@ -62,93 +65,124 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
       if (!mounted) return;
 
-      // Vérifier si l'utilisateur a une session active
-      final client = ref.read(supabaseClientProvider);
-      final session = client.auth.currentSession;
+      switch (result.type) {
+        case SignUpResultType.successWithSession:
+          // Session active → espace élève directement
+          context.go('/student/home');
+          break;
 
-      debugPrint('[RegisterScreen] Session après signUp: ${session != null}');
+        case SignUpResultType.successNeedsConfirmation:
+          // Email de confirmation envoyé
+          setState(() {
+            _uiState = 'confirm';
+            _registeredEmail = result.email;
+            _isLoading = false;
+          });
+          break;
 
-      if (session == null) {
-        // Email de confirmation requis par Supabase
-        setState(() {
-          _isLoading = false;
-          _emailConfirmationRequired = true;
-        });
-        return;
-      }
-
-      // Session active → rediriger vers espace élève
-      if (mounted) {
-        context.go('/student/home');
+        case SignUpResultType.emailAlreadyUsed:
+          setState(() {
+            _errorMessage =
+                'Cette adresse email est déjà utilisée. Connectez-vous.';
+            _isLoading = false;
+          });
+          break;
       }
     } catch (e) {
-      debugPrint('[RegisterScreen] Erreur inscription: $e');
+      debugPrint('[Register] Erreur: $e');
       if (mounted) {
         setState(() {
-          _errorMessage = _parseRegisterError(e.toString());
+          _errorMessage = _parseError(e.toString());
           _isLoading = false;
         });
       }
     }
   }
 
-  String _parseRegisterError(String error) {
-    final lower = error.toLowerCase();
-    debugPrint('[RegisterScreen] Parse error: $error');
-
-    if (lower.contains('user already registered') ||
-        lower.contains('already been registered') ||
-        lower.contains('already registered') ||
-        lower.contains('email address is already') ||
-        lower.contains('duplicate')) {
-      return 'Cette adresse email est déjà utilisée. Connectez-vous ou réinitialisez votre mot de passe.';
+  // ── Renvoyer email de confirmation ────────────────────────────────────────────
+  Future<void> _resendConfirmation() async {
+    if (_registeredEmail == null) return;
+    try {
+      await ref
+          .read(authActionsProvider)
+          .resendConfirmation(_registeredEmail!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Email de confirmation renvoyé !'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().toLowerCase().contains('rate')
+            ? 'Attendez quelques secondes avant de renvoyer.'
+            : 'Impossible de renvoyer. Réessayez.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.orange),
+        );
+      }
     }
-    if (lower.contains('password should be at least') ||
-        lower.contains('password must be') ||
-        lower.contains('weak_password') ||
-        lower.contains('at least 6')) {
-      return 'Mot de passe trop faible. Utilisez au moins 8 caractères.';
-    }
-    if (lower.contains('unable to validate email') ||
-        lower.contains('invalid email') ||
-        lower.contains('email is invalid')) {
-      return 'Adresse email invalide. Vérifiez le format (ex: nom@domaine.com).';
-    }
-    if (lower.contains('signup is disabled') ||
-        lower.contains('signups not allowed') ||
-        lower.contains('not allowed')) {
-      return 'Les inscriptions sont temporairement désactivées. Réessayez plus tard.';
-    }
-    if (lower.contains('rate limit') ||
-        lower.contains('too many requests') ||
-        lower.contains('over_email_send_rate_limit')) {
-      return 'Trop de tentatives. Attendez quelques minutes avant de réessayer.';
-    }
-    if (lower.contains('network') ||
-        lower.contains('connection') ||
-        lower.contains('socket') ||
-        lower.contains('timeout')) {
-      return 'Problème de réseau. Vérifiez votre connexion internet.';
-    }
-    if (lower.contains('invalid api key') ||
-        lower.contains('unauthorized') ||
-        lower.contains('401')) {
-      return 'Erreur de configuration. Contactez le support.';
-    }
-
-    debugPrint('[RegisterScreen] Erreur non gérée: $error');
-    return 'Erreur: ${error.length > 80 ? error.substring(0, 80) : error}';
   }
+
+  // ── Parsing erreurs Supabase → messages humains ───────────────────────────────
+  String _parseError(String raw) {
+    final e = raw.toLowerCase();
+
+    if (e.contains('user already registered') ||
+        e.contains('already registered') ||
+        e.contains('already been registered')) {
+      return 'Email déjà utilisé. Connectez-vous ou réinitialisez votre mot de passe.';
+    }
+    if (e.contains('email_not_confirmed') ||
+        e.contains('not confirmed')) {
+      return 'Un email de confirmation vous a déjà été envoyé. Vérifiez votre boîte mail.';
+    }
+    if (e.contains('password') && (e.contains('least') || e.contains('weak'))) {
+      return 'Mot de passe trop faible. Utilisez au moins 8 caractères variés.';
+    }
+    if (e.contains('invalid email') ||
+        e.contains('email') && e.contains('invalid')) {
+      return 'Adresse email invalide.';
+    }
+    if (e.contains('over_email_send_rate_limit') ||
+        e.contains('rate limit') ||
+        e.contains('too many')) {
+      return 'Trop de tentatives. Attendez quelques minutes.';
+    }
+    if (e.contains('signup') && e.contains('disabled')) {
+      return 'Les inscriptions sont temporairement désactivées.';
+    }
+    if (e.contains('network') ||
+        e.contains('socketexception') ||
+        e.contains('failed host lookup') ||
+        e.contains('connection refused')) {
+      return 'Pas de connexion internet. Vérifiez votre réseau.';
+    }
+    if (e.contains('timeout')) {
+      return 'Connexion trop lente. Réessayez.';
+    }
+
+    debugPrint('[Register] Erreur brute: $raw');
+    // Afficher l'erreur brute tronquée pour debug
+    final msg = raw.contains(':') ? raw.split(':').last.trim() : raw;
+    return msg.length > 120 ? '${msg.substring(0, 120)}...' : msg;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    // Écran de confirmation email
-    if (_emailConfirmationRequired) {
-      return _buildEmailConfirmationScreen(theme);
+    if (_uiState == 'confirm') {
+      return _buildConfirmScreen();
     }
+    return _buildFormScreen();
+  }
 
+  // ── Formulaire principal ──────────────────────────────────────────────────────
+  Widget _buildFormScreen() {
+    final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -167,251 +201,106 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── En-tête ──────────────────────────────────────────
-                Text(
-                  'Créer un compte',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                // En-tête
+                Text('Créer un compte',
+                    style: theme.textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
-                Text(
-                  'Rejoignez PermisConnect dès maintenant',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
+                Text('Rejoignez PermisConnect dès maintenant',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: AppColors.textSecondary)),
                 const SizedBox(height: 20),
 
-                // ── Badge Élève ──────────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color:
-                              AppColors.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.school,
-                          color: AppColors.primary,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Compte Élève',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Accès à vos cours, quiz et planning',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.verified,
-                        color: AppColors.primary,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ),
-
+                // Badge élève
+                _BadgeEleve(),
                 const SizedBox(height: 24),
 
-                // ── Nom complet ──────────────────────────────────────
-                TextFormField(
+                // Nom
+                _buildField(
                   controller: _nameCtrl,
-                  textCapitalization: TextCapitalization.words,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: 'Nom complet *',
-                    hintText: 'Ex : Kondabo Abdoul Aziz',
-                    prefixIcon: const Icon(Icons.person_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                  label: 'Nom complet *',
+                  hint: 'Ex : Kondabo Abdoul Aziz',
+                  icon: Icons.person_outlined,
+                  action: TextInputAction.next,
+                  caps: TextCapitalization.words,
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Le nom est requis';
-                    }
-                    if (v.trim().length < 3) {
-                      return 'Nom trop court (min. 3 caractères)';
-                    }
+                    if (v == null || v.trim().isEmpty) return 'Nom requis';
+                    if (v.trim().length < 3) return 'Min. 3 caractères';
                     return null;
                   },
                 ),
                 const SizedBox(height: 14),
 
-                // ── Email ────────────────────────────────────────────
-                TextFormField(
+                // Email
+                _buildField(
                   controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
+                  label: 'Adresse email *',
+                  hint: 'exemple@gmail.com',
+                  icon: Icons.email_outlined,
+                  action: TextInputAction.next,
+                  keyboard: TextInputType.emailAddress,
                   autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: 'Adresse email *',
-                    hintText: 'exemple@email.com',
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'L\'email est requis';
-                    }
+                    if (v == null || v.trim().isEmpty) return 'Email requis';
                     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$')
                         .hasMatch(v.trim())) {
-                      return 'Format d\'email invalide';
+                      return 'Email invalide';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 14),
 
-                // ── Téléphone (optionnel) ────────────────────────────
-                TextFormField(
+                // Téléphone
+                _buildField(
                   controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: 'Téléphone (optionnel)',
-                    hintText: '+225 07 00 00 00',
-                    prefixIcon: const Icon(Icons.phone_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                  label: 'Téléphone (optionnel)',
+                  hint: '+225 07 00 00 00',
+                  icon: Icons.phone_outlined,
+                  action: TextInputAction.next,
+                  keyboard: TextInputType.phone,
                 ),
                 const SizedBox(height: 14),
 
-                // ── Mot de passe ─────────────────────────────────────
-                TextFormField(
-                  controller: _passwordCtrl,
-                  obscureText: _obscurePassword,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: 'Mot de passe *',
-                    hintText: 'Min. 8 caractères',
-                    prefixIcon: const Icon(Icons.lock_outlined),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                      onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                // Mot de passe
+                _buildPasswordField(
+                  controller: _passCtrl,
+                  label: 'Mot de passe *',
+                  hint: 'Min. 8 caractères',
+                  obscure: _obscurePass,
+                  toggle: () => setState(() => _obscurePass = !_obscurePass),
+                  action: TextInputAction.next,
                   validator: (v) {
-                    if (v == null || v.isEmpty) {
-                      return 'Le mot de passe est requis';
-                    }
-                    if (v.length < 8) {
-                      return 'Minimum 8 caractères requis';
-                    }
+                    if (v == null || v.isEmpty) return 'Mot de passe requis';
+                    if (v.length < 8) return 'Minimum 8 caractères';
                     return null;
                   },
                 ),
                 const SizedBox(height: 14),
 
-                // ── Confirmation mot de passe ────────────────────────
-                TextFormField(
+                // Confirmation
+                _buildPasswordField(
                   controller: _confirmCtrl,
-                  obscureText: _obscureConfirm,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _register(),
-                  decoration: InputDecoration(
-                    labelText: 'Confirmer le mot de passe *',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureConfirm
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                      onPressed: () => setState(
-                          () => _obscureConfirm = !_obscureConfirm),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                  label: 'Confirmer le mot de passe *',
+                  obscure: _obscureConfirm,
+                  toggle: () =>
+                      setState(() => _obscureConfirm = !_obscureConfirm),
+                  action: TextInputAction.done,
+                  onSubmit: (_) => _register(),
                   validator: (v) {
-                    if (v == null || v.isEmpty) {
-                      return 'Confirmation requise';
-                    }
-                    if (v != _passwordCtrl.text) {
-                      return 'Les mots de passe ne correspondent pas';
-                    }
+                    if (v == null || v.isEmpty) return 'Confirmation requise';
+                    if (v != _passCtrl.text) return 'Mots de passe différents';
                     return null;
                   },
                 ),
 
                 const SizedBox(height: 20),
 
-                // ── Message d'erreur ─────────────────────────────────
-                if (_errorMessage != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: AppColors.error.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.error_outline,
-                            color: AppColors.error, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(
-                              color: AppColors.error,
-                              fontSize: 13,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                // Erreur
+                if (_errorMessage != null) _ErrorBox(message: _errorMessage!),
 
-                // ── Bouton inscription ───────────────────────────────
+                // Bouton
+                const SizedBox(height: 4),
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -423,51 +312,37 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       disabledBackgroundColor:
                           AppColors.primary.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                          borderRadius: BorderRadius.circular(12)),
                       elevation: 2,
                     ),
                     child: _isLoading
                         ? const SizedBox(
-                            width: 22,
-                            height: 22,
+                            width: 22, height: 22,
                             child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2.5,
-                            ),
-                          )
-                        : const Text(
-                            'Créer mon compte Élève',
+                                color: Colors.white, strokeWidth: 2.5))
+                        : const Text('Créer mon compte Élève',
                             style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                                fontSize: 16, fontWeight: FontWeight.w600)),
                   ),
                 ),
 
                 const SizedBox(height: 20),
 
-                // ── Lien vers connexion ──────────────────────────────
+                // Lien connexion
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        'Déjà un compte ? ',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
+                      Text('Déjà un compte ? ',
+                          style: TextStyle(color: AppColors.textSecondary)),
                       TextButton(
                         onPressed: () => context.pop(),
-                        child: const Text(
-                          'Se connecter',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                        child: const Text('Se connecter',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 16),
               ],
             ),
@@ -477,8 +352,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  /// Écran affiché si Supabase exige une confirmation email
-  Widget _buildEmailConfirmationScreen(ThemeData theme) {
+  // ── Écran confirmation email ──────────────────────────────────────────────────
+  Widget _buildConfirmScreen() {
+    final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -488,84 +364,235 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 90,
-                height: 90,
+                width: 90, height: 90,
                 decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.mark_email_read_outlined,
-                  size: 48,
-                  color: Colors.green,
-                ),
+                    color: Colors.green.withValues(alpha: 0.1),
+                    shape: BoxShape.circle),
+                child: const Icon(Icons.mark_email_read_outlined,
+                    size: 48, color: Colors.green),
               ),
               const SizedBox(height: 28),
-              Text(
-                'Vérifiez vos emails',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Un lien de confirmation a été envoyé à :',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _emailCtrl.text.trim(),
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
-                textAlign: TextAlign.center,
-              ),
+              Text('Vérifiez vos emails',
+                  style: theme.textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              Text(
-                'Cliquez sur le lien dans l\'email pour activer votre compte, puis connectez-vous.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.5,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
                 ),
-                textAlign: TextAlign.center,
+                child: Column(
+                  children: [
+                    Text(
+                      'Un email de confirmation a été envoyé à :',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: AppColors.textSecondary),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _registeredEmail ?? '',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 20),
+              Text(
+                '1. Ouvrez votre application Gmail\n'
+                '2. Trouvez l\'email de PermisConnect\n'
+                '3. Cliquez sur "Confirmer votre email"\n'
+                '4. Revenez ici et connectez-vous',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(height: 1.8, color: Colors.black87),
+                textAlign: TextAlign.left,
+              ),
+              const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
                 height: 52,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   onPressed: () => context.go('/login'),
+                  icon: const Icon(Icons.login),
+                  label: const Text('Se connecter après confirmation',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text(
-                    'Aller à la connexion',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _resendConfirmation,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Renvoyer l\'email'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  minimumSize: const Size(double.infinity, 48),
                 ),
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _emailConfirmationRequired = false;
-                    _isLoading = false;
-                  });
-                },
-                child: const Text('Modifier mon email'),
+                onPressed: () => setState(() {
+                  _uiState = null;
+                  _errorMessage = null;
+                }),
+                child: const Text('← Modifier mon email',
+                    style: TextStyle(color: Colors.grey)),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ── Helpers UI ────────────────────────────────────────────────────────────────
+  Widget _buildField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    required IconData icon,
+    required TextInputAction action,
+    TextInputType keyboard = TextInputType.text,
+    TextCapitalization caps = TextCapitalization.none,
+    bool autocorrect = true,
+    String? Function(String?)? validator,
+    void Function(String)? onSubmit,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboard,
+      textInputAction: action,
+      textCapitalization: caps,
+      autocorrect: autocorrect,
+      onFieldSubmitted: onSubmit,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      validator: validator,
+    );
+  }
+
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    required bool obscure,
+    required VoidCallback toggle,
+    required TextInputAction action,
+    String? Function(String?)? validator,
+    void Function(String)? onSubmit,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscure,
+      textInputAction: action,
+      onFieldSubmitted: onSubmit,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: const Icon(Icons.lock_outlined),
+        suffixIcon: IconButton(
+          icon: Icon(obscure
+              ? Icons.visibility_off_outlined
+              : Icons.visibility_outlined),
+          onPressed: toggle,
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      validator: validator,
+    );
+  }
+}
+
+// ─── Widgets réutilisables ────────────────────────────────────────────────────
+
+class _BadgeEleve extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.school, color: AppColors.primary, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Compte Élève',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                        fontSize: 14)),
+                const SizedBox(height: 2),
+                Text('Accès à vos cours, quiz et planning',
+                    style: TextStyle(
+                        color: AppColors.textSecondary, fontSize: 12)),
+              ],
+            ),
+          ),
+          Icon(Icons.verified, color: AppColors.primary, size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBox extends StatelessWidget {
+  final String message;
+  const _ErrorBox({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, color: AppColors.error, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message,
+                  style: TextStyle(
+                      color: AppColors.error, fontSize: 13, height: 1.4)),
+            ),
+          ],
         ),
       ),
     );

@@ -7,13 +7,13 @@ import '../../data/repositories/supabase_profile_repository.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../domain/repositories/profile_repository.dart';
 
-// ─── Client Supabase ────────────────────────────────────────────────────────
+// ─── Client Supabase ─────────────────────────────────────────────────────────
 
 final supabaseClientProvider = Provider<SupabaseClient>((ref) {
   return Supabase.instance.client;
 });
 
-// ─── Repositories ────────────────────────────────────────────────────────────
+// ─── Repositories ─────────────────────────────────────────────────────────────
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return SupabaseAuthRepository(ref.watch(supabaseClientProvider));
@@ -23,18 +23,17 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
   return SupabaseProfileRepository(ref.watch(supabaseClientProvider));
 });
 
-// ─── Auth State Stream ────────────────────────────────────────────────────────
+// ─── Auth State Stream ─────────────────────────────────────────────────────────
 
 final authStateProvider = StreamProvider<AuthState>((ref) {
   return ref.watch(authRepositoryProvider).authStateChanges;
 });
 
-/// Utilisateur Supabase actuel (null si non connecté)
 final currentUserProvider = Provider<User?>((ref) {
   return Supabase.instance.client.auth.currentUser;
 });
 
-// ─── Profile State ────────────────────────────────────────────────────────────
+// ─── Profile State ─────────────────────────────────────────────────────────────
 
 final currentProfileProvider =
     StateNotifierProvider<ProfileNotifier, AsyncValue<ProfileModel?>>(
@@ -48,36 +47,29 @@ class ProfileNotifier extends StateNotifier<AsyncValue<ProfileModel?>> {
     load();
   }
 
-  /// Charge le profil — avec retry si le trigger n'a pas encore créé la ligne
   Future<void> load() async {
     state = const AsyncValue.loading();
     try {
-      // Retry jusqu'à 5 fois (le trigger Supabase peut prendre 1-2s)
       ProfileModel? profile;
-      for (int attempt = 1; attempt <= 5; attempt++) {
+      // Retry x5 car le trigger Supabase crée le profil de façon asynchrone
+      for (int i = 1; i <= 5; i++) {
         profile = await _repo.getCurrentProfile();
         if (profile != null) break;
-
-        if (attempt < 5) {
-          debugPrint('[ProfileNotifier] Profil null, retry $attempt/5...');
-          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        if (i < 5) {
+          debugPrint('[Profile] null, retry $i/5...');
+          await Future.delayed(Duration(milliseconds: 600 * i));
         }
       }
       state = AsyncValue.data(profile);
     } catch (e, st) {
-      debugPrint('[ProfileNotifier] Erreur chargement profil: $e');
+      debugPrint('[Profile] Erreur: $e');
       state = AsyncValue.error(e, st);
     }
   }
 
-  Future<void> update({
-    String? fullName,
-    String? phone,
-    String? avatarUrl,
-  }) async {
+  Future<void> update({String? fullName, String? phone, String? avatarUrl}) async {
     final current = state.valueOrNull;
     if (current == null) return;
-
     try {
       final updated = await _repo.updateProfile(
         profileId: current.id,
@@ -87,7 +79,6 @@ class ProfileNotifier extends StateNotifier<AsyncValue<ProfileModel?>> {
       );
       state = AsyncValue.data(updated);
     } catch (e, st) {
-      debugPrint('[ProfileNotifier] Erreur mise à jour profil: $e');
       state = AsyncValue.error(e, st);
     }
   }
@@ -95,7 +86,24 @@ class ProfileNotifier extends StateNotifier<AsyncValue<ProfileModel?>> {
   void clear() => state = const AsyncValue.data(null);
 }
 
-// ─── Auth Actions ─────────────────────────────────────────────────────────────
+// ─── Résultat d'inscription ────────────────────────────────────────────────────
+
+enum SignUpResultType {
+  /// Compte créé + session active → peut aller directement dans l'app
+  successWithSession,
+  /// Compte créé mais email de confirmation envoyé → attendre la confirmation
+  successNeedsConfirmation,
+  /// Email déjà utilisé (et déjà confirmé)
+  emailAlreadyUsed,
+}
+
+class SignUpResult {
+  final SignUpResultType type;
+  final String? email;
+  SignUpResult({required this.type, this.email});
+}
+
+// ─── Auth Actions ──────────────────────────────────────────────────────────────
 
 final authActionsProvider = Provider<AuthActions>((ref) {
   return AuthActions(
@@ -113,35 +121,28 @@ class AuthActions {
 
   AuthActions(this._authRepo, this._profileRepo, this._ref);
 
-  /// Connexion email + mot de passe
-  Future<void> signIn({
-    required String email,
-    required String password,
-  }) async {
-    debugPrint('[AuthActions] signIn: $email');
+  // ── Connexion ────────────────────────────────────────────────────────────────
+  Future<void> signIn({required String email, required String password}) async {
+    debugPrint('[Auth] signIn: $email');
     final response = await _authRepo.signInWithEmail(
       email: email,
       password: password,
     );
-
     if (response.user == null) {
-      throw Exception('Connexion échouée : aucun utilisateur retourné.');
+      throw Exception('Connexion échouée.');
     }
-
-    debugPrint('[AuthActions] signIn OK uid=${response.user!.id}');
-    // Charger le profil après connexion
+    debugPrint('[Auth] signIn OK uid=${response.user!.id}');
     await _ref.read(currentProfileProvider.notifier).load();
   }
 
-  /// Inscription : rôle TOUJOURS 'student' (trigger Supabase).
-  /// Ne passe AUCUN paramètre role ou inviteCode.
-  Future<void> signUp({
+  // ── Inscription ───────────────────────────────────────────────────────────────
+  Future<SignUpResult> signUp({
     required String email,
     required String password,
     required String fullName,
     String? phone,
   }) async {
-    debugPrint('[AuthActions] signUp: $email / $fullName');
+    debugPrint('[Auth] signUp: $email');
 
     final response = await _authRepo.signUpWithEmail(
       email: email,
@@ -150,34 +151,58 @@ class AuthActions {
       phone: phone,
     );
 
-    debugPrint('[AuthActions] signUp response: '
-        'user=${response.user?.id} '
-        'session=${response.session != null}');
+    debugPrint('[Auth] signUp response: '
+        'user=${response.user?.id}, '
+        'session=${response.session != null}, '
+        'identities=${response.user?.identities?.length}');
 
-    // Supabase peut retourner un user sans session si email confirmation activée
-    if (response.user == null) {
-      throw Exception(
-          'Inscription échouée : aucun utilisateur retourné par Supabase.');
+    // Cas: email déjà utilisé ET déjà confirmé
+    // Supabase retourne user mais avec identities vide = email déjà existant
+    final identitiesEmpty = (response.user?.identities?.isEmpty) ?? false;
+    if (identitiesEmpty) {
+      debugPrint('[Auth] Email déjà utilisé (identities vide)');
+      return SignUpResult(
+        type: SignUpResultType.emailAlreadyUsed,
+        email: email,
+      );
     }
 
-    // Si pas de session → email de confirmation envoyé
-    if (response.session == null) {
-      debugPrint('[AuthActions] Email confirmation requis');
-      // On ne charge pas le profil — l'utilisateur doit confirmer son email
-      return;
+    // Cas: session active → peut se connecter directement
+    if (response.session != null) {
+      debugPrint('[Auth] Session active, chargement profil...');
+      await Future.delayed(const Duration(milliseconds: 800));
+      await _ref.read(currentProfileProvider.notifier).load();
+      return SignUpResult(
+        type: SignUpResultType.successWithSession,
+        email: email,
+      );
     }
 
-    // Session active → charger le profil (avec retry pour le trigger)
-    debugPrint('[AuthActions] Session active, chargement profil...');
-    await _ref.read(currentProfileProvider.notifier).load();
+    // Cas: pas de session → confirmation email requise
+    debugPrint('[Auth] Email confirmation requise');
+    return SignUpResult(
+      type: SignUpResultType.successNeedsConfirmation,
+      email: email,
+    );
   }
 
+  // ── Renvoyer email de confirmation ────────────────────────────────────────────
+  Future<void> resendConfirmation(String email) async {
+    debugPrint('[Auth] resend confirmation: $email');
+    await Supabase.instance.client.auth.resend(
+      type: OtpType.signup,
+      email: email,
+    );
+  }
+
+  // ── Déconnexion ───────────────────────────────────────────────────────────────
   Future<void> signOut() async {
-    debugPrint('[AuthActions] signOut');
+    debugPrint('[Auth] signOut');
     await _authRepo.signOut();
     _ref.read(currentProfileProvider.notifier).clear();
   }
 
+  // ── Reset mot de passe ────────────────────────────────────────────────────────
   Future<void> resetPassword(String email) async {
     await _authRepo.resetPassword(email);
   }
