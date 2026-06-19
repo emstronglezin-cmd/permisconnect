@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/config/supabase_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../presentation/providers/auth_provider.dart';
+import '../../../presentation/widgets/google_sign_in_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -14,14 +15,15 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final _formKey  = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
 
-  bool _obscure   = true;
-  bool _isLoading = false;
+  bool _obscure           = true;
+  bool _isLoading         = false;
+  bool _isGoogleLoading   = false;
   String? _errorMessage;
-  bool _showResendButton = false; // afficher si email non confirmé
+  bool _showResendButton  = false;
 
   @override
   void dispose() {
@@ -30,6 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
+  // ── Connexion email/password ───────────────────────────────────────────────
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -40,17 +43,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
-      debugPrint('[Login] Tentative: ${_emailCtrl.text.trim()}');
+      debugPrint('[LoginScreen] 🔑 Tentative: ${_emailCtrl.text.trim()}');
 
       await ref.read(authActionsProvider).signIn(
-            email:    _emailCtrl.text.trim(),
-            password: _passCtrl.text,
-          );
+        email:    _emailCtrl.text.trim(),
+        password: _passCtrl.text,
+      );
 
       if (!mounted) return;
 
       final profile = ref.read(currentProfileProvider).valueOrNull;
-      debugPrint('[Login] Profil rôle: ${profile?.role}');
+      debugPrint('[LoginScreen] ✅ Connecté — rôle: ${profile?.role}');
 
       if (profile?.role == SupabaseConfig.roleAdmin) {
         context.go('/admin/home');
@@ -58,11 +61,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         context.go('/student/home');
       }
     } catch (e) {
-      debugPrint('[Login] Erreur: $e');
+      debugPrint('[LoginScreen] ❌ Erreur: ${e.runtimeType}: $e');
       if (mounted) {
-        final msg = _parseError(e.toString());
-        final isNotConfirmed = e.toString().toLowerCase()
-            .contains('email_not_confirmed') ||
+        final msg = _parseError(e);
+        final isNotConfirmed = e.toString().toLowerCase().contains('email_not_confirmed') ||
             e.toString().toLowerCase().contains('not confirmed');
         setState(() {
           _errorMessage = msg;
@@ -73,9 +75,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  String _parseError(String raw) {
+  // ── Connexion Google ───────────────────────────────────────────────────────
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isGoogleLoading = true;
+      _errorMessage = null;
+      _showResendButton = false;
+    });
+
+    try {
+      final result = await ref.read(authActionsProvider).signInWithGoogle();
+
+      if (!mounted) return;
+
+      if (result.type == SignUpResultType.successWithSession) {
+        final profile = ref.read(currentProfileProvider).valueOrNull;
+        if (profile?.role == SupabaseConfig.roleAdmin) {
+          context.go('/admin/home');
+        } else {
+          context.go('/student/home');
+        }
+      }
+    } catch (e) {
+      debugPrint('[LoginScreen] ❌ Google erreur: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = _parseError(e);
+          _isGoogleLoading = false;
+        });
+      }
+    }
+  }
+
+  // ── Parsing erreurs — AFFICHE L'ERREUR RÉELLE ─────────────────────────────
+  String _parseError(Object error) {
+    final raw = error.toString();
     final e = raw.toLowerCase();
-    debugPrint('[Login] Parse error: $raw');
+    debugPrint('[LoginScreen] _parseError: $raw');
 
     if (e.contains('invalid login credentials') ||
         e.contains('invalid_credentials') ||
@@ -93,19 +129,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (e.contains('user not found') || e.contains('no user')) {
       return 'Aucun compte avec cet email. Inscrivez-vous d\'abord.';
     }
-    if (e.contains('network') ||
-        e.contains('socketexception') ||
+    if (e.contains('network_error') || e.contains('code: network_error')) {
+      return 'Impossible de contacter le serveur. Vérifiez votre connexion.';
+    }
+    // Erreur réseau RÉELLE uniquement
+    if (e.contains('socketexception') ||
         e.contains('failed host lookup') ||
-        e.contains('connection refused')) {
+        e.contains('connection refused') ||
+        e.contains('os error')) {
       return 'Pas de connexion internet. Vérifiez votre réseau.';
     }
-    if (e.contains('timeout')) {
+    if (e.contains('timeoutexception') || (e.contains('timeout') && !e.contains('session'))) {
       return 'Connexion trop lente. Réessayez.';
     }
+    if (e.contains('annulée') || e.contains('cancelled') || e.contains('canceled')) {
+      return 'Connexion Google annulée.';
+    }
+    if (e.contains('non configuré') || e.contains('not configured')) {
+      return 'Google Sign-In non configuré. Utilisez email/mot de passe.';
+    }
 
-    debugPrint('[Login] Erreur non gérée: $raw');
-    final msg = raw.contains(':') ? raw.split(':').last.trim() : raw;
-    return msg.length > 120 ? '${msg.substring(0, 120)}...' : msg;
+    // ⚠️ Afficher l'erreur brute — pas de message générique trompeur
+    debugPrint('[LoginScreen] Erreur non classifiée: $raw');
+    final parts = raw.split(':');
+    final msg = parts.length > 1 ? parts.last.trim() : raw;
+    return msg.length > 150 ? '${msg.substring(0, 150)}...' : msg;
   }
 
   Future<void> _resendConfirmation() async {
@@ -153,7 +201,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Logo ────────────────────────────────────────────────
+                // ── Logo ──────────────────────────────────────────────────
                 Center(
                   child: Container(
                     width: 80, height: 80,
@@ -177,7 +225,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: AppColors.textSecondary)),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 32),
 
                 Text('Connexion',
                     style: theme.textTheme.headlineSmall
@@ -186,9 +234,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Text('Connectez-vous à votre compte',
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(color: AppColors.textSecondary)),
-                const SizedBox(height: 28),
+                const SizedBox(height: 24),
 
-                // ── Email ────────────────────────────────────────────────
+                // ── Bouton Google ─────────────────────────────────────────
+                GoogleSignInButton(
+                  onPressed: (_isLoading || _isGoogleLoading) ? null : _signInWithGoogle,
+                  isLoading: _isGoogleLoading,
+                  label: 'Continuer avec Google',
+                ),
+                const SizedBox(height: 16),
+
+                // Séparateur
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('ou',
+                          style: TextStyle(
+                              color: AppColors.textSecondary, fontSize: 13)),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ── Email ─────────────────────────────────────────────────
                 TextFormField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
@@ -208,7 +279,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // ── Mot de passe ─────────────────────────────────────────
+                // ── Mot de passe ──────────────────────────────────────────
                 TextFormField(
                   controller: _passCtrl,
                   obscureText: _obscure,
@@ -235,7 +306,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // ── Mot de passe oublié ──────────────────────────────────
+                // ── Mot de passe oublié ───────────────────────────────────
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -244,7 +315,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
 
-                // ── Erreur ───────────────────────────────────────────────
+                // ── Erreur ────────────────────────────────────────────────
                 if (_errorMessage != null) ...[
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -293,12 +364,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                // ── Bouton connexion ─────────────────────────────────────
+                // ── Bouton connexion ──────────────────────────────────────
                 SizedBox(
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _signIn,
+                    onPressed: (_isLoading || _isGoogleLoading) ? null : _signIn,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -319,7 +390,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // ── Lien inscription ─────────────────────────────────────
+                // ── Lien inscription ──────────────────────────────────────
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,

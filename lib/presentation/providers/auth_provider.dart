@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/google_auth_service.dart';
 import '../../data/models/profile_model.dart';
 import '../../data/repositories/supabase_auth_repository.dart';
 import '../../data/repositories/supabase_profile_repository.dart';
@@ -121,28 +122,29 @@ class AuthActions {
 
   AuthActions(this._authRepo, this._profileRepo, this._ref);
 
-  // ── Connexion ────────────────────────────────────────────────────────────────
+  // ── Connexion email/password ───────────────────────────────────────────────
   Future<void> signIn({required String email, required String password}) async {
-    debugPrint('[Auth] signIn: $email');
+    debugPrint('[AuthActions] 🔑 signIn: $email');
     final response = await _authRepo.signInWithEmail(
       email: email,
       password: password,
     );
     if (response.user == null) {
-      throw Exception('Connexion échouée.');
+      throw const AuthException('Connexion échouée. Utilisateur introuvable.');
     }
-    debugPrint('[Auth] signIn OK uid=${response.user!.id}');
+    debugPrint('[AuthActions] ✅ signIn OK uid=${response.user!.id}');
+    await Future.delayed(const Duration(milliseconds: 500));
     await _ref.read(currentProfileProvider.notifier).load();
   }
 
-  // ── Inscription ───────────────────────────────────────────────────────────────
+  // ── Inscription email/password ─────────────────────────────────────────────
   Future<SignUpResult> signUp({
     required String email,
     required String password,
     required String fullName,
     String? phone,
   }) async {
-    debugPrint('[Auth] signUp: $email');
+    debugPrint('[AuthActions] 📝 signUp: $email');
 
     final response = await _authRepo.signUpWithEmail(
       email: email,
@@ -151,59 +153,83 @@ class AuthActions {
       phone: phone,
     );
 
-    debugPrint('[Auth] signUp response: '
-        'user=${response.user?.id}, '
-        'session=${response.session != null}, '
-        'identities=${response.user?.identities?.length}');
+    debugPrint('[AuthActions] signUp réponse:'
+        '\n  user=${response.user?.id}'
+        '\n  session=${response.session != null}'
+        '\n  identities=${response.user?.identities?.length}'
+        '\n  emailConfirmed=${response.user?.emailConfirmedAt}');
 
-    // Cas: email déjà utilisé ET déjà confirmé
-    // Supabase retourne user mais avec identities vide = email déjà existant
+    // Email déjà utilisé : Supabase retourne user avec identities vide
     final identitiesEmpty = (response.user?.identities?.isEmpty) ?? false;
     if (identitiesEmpty) {
-      debugPrint('[Auth] Email déjà utilisé (identities vide)');
-      return SignUpResult(
-        type: SignUpResultType.emailAlreadyUsed,
-        email: email,
-      );
+      debugPrint('[AuthActions] ⚠️ Email déjà utilisé (identities=[])');
+      return SignUpResult(type: SignUpResultType.emailAlreadyUsed, email: email);
     }
 
-    // Cas: session active → peut se connecter directement
+    // Session active → connexion directe (mailer_autoconfirm=true ou Edge Function)
     if (response.session != null) {
-      debugPrint('[Auth] Session active, chargement profil...');
+      debugPrint('[AuthActions] ✅ Session active → chargement profil...');
       await Future.delayed(const Duration(milliseconds: 800));
       await _ref.read(currentProfileProvider.notifier).load();
-      return SignUpResult(
-        type: SignUpResultType.successWithSession,
-        email: email,
-      );
+      return SignUpResult(type: SignUpResultType.successWithSession, email: email);
     }
 
-    // Cas: pas de session → confirmation email requise
-    debugPrint('[Auth] Email confirmation requise');
-    return SignUpResult(
-      type: SignUpResultType.successNeedsConfirmation,
-      email: email,
-    );
+    // Pas de session → confirmation email requise
+    debugPrint('[AuthActions] 📧 Confirmation email requise');
+    return SignUpResult(type: SignUpResultType.successNeedsConfirmation, email: email);
   }
 
-  // ── Renvoyer email de confirmation ────────────────────────────────────────────
+  // ── Connexion Google ───────────────────────────────────────────────────────
+  Future<SignUpResult> signInWithGoogle() async {
+    debugPrint('[AuthActions] 🔄 signInWithGoogle...');
+    try {
+      final response = await GoogleAuthService.instance.signIn();
+
+      if (response.user == null) {
+        throw const AuthException('Connexion Google échouée.');
+      }
+
+      debugPrint('[AuthActions] ✅ Google OK: uid=${response.user!.id}');
+
+      // Charger le profil (le trigger crée le profil si nouveau user)
+      await Future.delayed(const Duration(milliseconds: 800));
+      await _ref.read(currentProfileProvider.notifier).load();
+
+      return SignUpResult(
+        type: SignUpResultType.successWithSession,
+        email: response.user!.email,
+      );
+    } on AuthException {
+      rethrow;
+    } catch (e) {
+      debugPrint('[AuthActions] ❌ Google erreur: $e');
+      rethrow;
+    }
+  }
+
+  /// Indique si Google Sign-In est configuré (Client ID présent)
+  bool get isGoogleSignInConfigured => GoogleAuthService.instance.isConfigured;
+
+  // ── Renvoyer email de confirmation ─────────────────────────────────────────
   Future<void> resendConfirmation(String email) async {
-    debugPrint('[Auth] resend confirmation: $email');
+    debugPrint('[AuthActions] 📧 resend confirmation: $email');
     await Supabase.instance.client.auth.resend(
       type: OtpType.signup,
       email: email,
     );
   }
 
-  // ── Déconnexion ───────────────────────────────────────────────────────────────
+  // ── Déconnexion ────────────────────────────────────────────────────────────
   Future<void> signOut() async {
-    debugPrint('[Auth] signOut');
+    debugPrint('[AuthActions] 🚪 signOut');
+    await GoogleAuthService.instance.signOut();
     await _authRepo.signOut();
     _ref.read(currentProfileProvider.notifier).clear();
   }
 
-  // ── Reset mot de passe ────────────────────────────────────────────────────────
+  // ── Reset mot de passe ─────────────────────────────────────────────────────
   Future<void> resetPassword(String email) async {
+    debugPrint('[AuthActions] 🔄 resetPassword: $email');
     await _authRepo.resetPassword(email);
   }
 }

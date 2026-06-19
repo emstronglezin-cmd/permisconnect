@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,14 +8,16 @@ import '../../domain/repositories/auth_repository.dart';
 
 /// Implémentation Supabase du repository d'authentification.
 ///
-/// STRATÉGIE D'INSCRIPTION :
-///   1. Appel à l'Edge Function `register-user` (crée compte pré-confirmé + session)
-///   2. Si Edge Function non disponible → fallback vers auth.signUp() standard
+/// STRATÉGIE D'INSCRIPTION (dans l'ordre) :
+///   1. Appel Edge Function `register-user` → compte pré-confirmé + session directe
+///   2. Fallback : auth.signUp() standard → confirmation email ou session directe
 ///
 /// SÉCURITÉ :
-///   - Jamais de rôle dans les métadonnées côté client
-///   - Le rôle 'student' est assigné par le trigger PostgreSQL handle_new_user()
-///   - La service_role key n'est JAMAIS exposée dans l'APK
+///   - Aucun rôle dans les métadonnées côté client
+///   - Le rôle 'student' est assigné par trigger PostgreSQL handle_new_user()
+///   - La service_role key n'est JAMAIS dans l'APK
+///
+/// LOGS : Tous les appels API loguent l'erreur réelle pour diagnostic
 class SupabaseAuthRepository implements AuthRepository {
   final SupabaseClient _client;
 
@@ -33,11 +36,32 @@ class SupabaseAuthRepository implements AuthRepository {
     required String email,
     required String password,
   }) async {
-    final response = await _client.auth.signInWithPassword(
-      email: email.trim().toLowerCase(),
-      password: password,
-    );
-    return response;
+    debugPrint('[SupabaseAuth] 🔑 signIn: $email');
+    try {
+      final response = await _client.auth.signInWithPassword(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+      debugPrint('[SupabaseAuth] ✅ signIn OK: uid=${response.user?.id}');
+      return response;
+    } on AuthException catch (e) {
+      // Log l'erreur RÉELLE de Supabase — jamais de message générique ici
+      debugPrint('[SupabaseAuth] ❌ signIn AuthException:'
+          '\n  message: ${e.message}'
+          '\n  statusCode: ${e.statusCode}'
+          '\n  code: ${e.code}');
+      rethrow;
+    } on SocketException catch (e) {
+      debugPrint('[SupabaseAuth] ❌ signIn SocketException: $e');
+      throw const AuthException(
+        'Impossible de contacter le serveur. Vérifiez votre connexion.',
+        statusCode: '0',
+        code: 'network_error',
+      );
+    } catch (e) {
+      debugPrint('[SupabaseAuth] ❌ signIn erreur inattendue: ${e.runtimeType}: $e');
+      rethrow;
+    }
   }
 
   // ── Inscription ────────────────────────────────────────────────────────────
@@ -49,8 +73,9 @@ class SupabaseAuthRepository implements AuthRepository {
     required String fullName,
     String? phone,
   }) async {
-    // TENTATIVE 1: Edge Function (bypasse la confirmation email)
-    // Fonctionne si l'Edge Function est déployée sur Supabase Dashboard
+    debugPrint('[SupabaseAuth] 📝 signUp: $email');
+
+    // TENTATIVE 1 : Edge Function (bypass confirmation email)
     try {
       final edgeResult = await _signUpViaEdgeFunction(
         email: email,
@@ -59,16 +84,19 @@ class SupabaseAuthRepository implements AuthRepository {
         phone: phone,
       );
       if (edgeResult != null) {
-        debugPrint('[Auth] ✅ Inscription via Edge Function réussie');
+        debugPrint('[SupabaseAuth] ✅ signUp via Edge Function réussi');
         return edgeResult;
       }
+      debugPrint('[SupabaseAuth] ⚠️ Edge Function indisponible → fallback');
+    } on AuthException {
+      // AuthException de l'Edge Function → remonter directement (email déjà utilisé, etc.)
+      rethrow;
     } catch (e) {
-      debugPrint('[Auth] Edge Function indisponible, fallback: $e');
+      // Erreur réseau / timeout sur Edge Function → fallback silencieux
+      debugPrint('[SupabaseAuth] ⚠️ Edge Function erreur ($e) → fallback signUp standard');
     }
 
-    // TENTATIVE 2: Fallback — auth.signUp() standard Supabase
-    // L'utilisateur devra confirmer son email
-    debugPrint('[Auth] ⚡ Fallback: auth.signUp() standard');
+    // TENTATIVE 2 : auth.signUp() standard
     return await _signUpStandard(
       email: email,
       password: password,
@@ -77,20 +105,17 @@ class SupabaseAuthRepository implements AuthRepository {
     );
   }
 
-  // ── Edge Function (inscription sans confirmation email) ───────────────────
+  // ── Edge Function ─────────────────────────────────────────────────────────
 
-  /// Appelle l'Edge Function `register-user` qui crée un compte pré-confirmé.
-  /// Retourne null si la fonction n'est pas déployée (404).
   Future<AuthResponse?> _signUpViaEdgeFunction({
     required String email,
     required String password,
     required String fullName,
     String? phone,
   }) async {
-    final uri = Uri.parse(
-      '${SupabaseConfig.url}/functions/v1/register-user',
-    );
+    debugPrint('[SupabaseAuth] 🔄 Tentative Edge Function register-user...');
 
+    final uri = Uri.parse('${SupabaseConfig.url}/functions/v1/register-user');
     final body = <String, dynamic>{
       'email': email.trim().toLowerCase(),
       'password': password,
@@ -110,44 +135,59 @@ class SupabaseAuthRepository implements AuthRepository {
           },
           body: jsonEncode(body),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 10));
 
-    debugPrint('[Auth] Edge Function status: ${response.statusCode}');
+    debugPrint('[SupabaseAuth] Edge Function → HTTP ${response.statusCode}');
 
-    // Edge Function non déployée → fallback
-    if (response.statusCode == 404) return null;
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-    // Erreur côté Edge Function
-    if (response.statusCode >= 400) {
-      final errorCode = data['error'] as String? ?? '';
-      final errorMsg = data['message'] as String? ?? data['error'] ?? 'Erreur inconnue';
-
-      if (errorCode == 'email_already_used' || response.statusCode == 409) {
-        throw AuthException('User already registered');
-      }
-      throw AuthException(errorMsg);
+    // Non déployée → fallback
+    if (response.statusCode == 404) {
+      debugPrint('[SupabaseAuth] Edge Function non déployée (404)');
+      return null;
     }
 
-    // Succès : récupérer les tokens et créer la session
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    debugPrint('[SupabaseAuth] Edge Function body: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
+
+    if (response.statusCode >= 400) {
+      final errorCode = data['error'] as String? ?? '';
+      final errorMsg = data['message'] as String? ?? data['error'] as String? ?? 'Erreur Edge Function';
+      debugPrint('[SupabaseAuth] ❌ Edge Function erreur $errorCode: $errorMsg');
+
+      if (errorCode == 'email_already_used' || response.statusCode == 409) {
+        throw const AuthException('User already registered', code: 'email_exists');
+      }
+      throw AuthException(errorMsg, statusCode: response.statusCode.toString());
+    }
+
+    // Récupérer access_token + refresh_token
     final accessToken = data['access_token'] as String?;
     final refreshToken = data['refresh_token'] as String?;
 
     if (accessToken != null && refreshToken != null) {
-      debugPrint('[Auth] Tokens reçus, création session...');
-      // Établir la session Flutter avec les tokens reçus
-      final sessionResp = await _client.auth.setSession(accessToken);
-      return sessionResp;
+      debugPrint('[SupabaseAuth] ✅ Tokens reçus → création session...');
+      try {
+        final sessionResp = await _client.auth.setSession(accessToken);
+        return sessionResp;
+      } catch (e) {
+        debugPrint('[SupabaseAuth] ⚠️ setSession échoué: $e → signIn direct');
+        // Essayer signIn direct avec les credentials
+        try {
+          return await _client.auth.signInWithPassword(
+            email: email.trim().toLowerCase(),
+            password: password,
+          );
+        } catch (e2) {
+          debugPrint('[SupabaseAuth] ⚠️ signIn post-EdgeFunction échoué: $e2');
+          return null;
+        }
+      }
     }
 
-    // Edge Function a créé le compte mais pas de session (erreur signin côté serveur)
-    // → Retourner une réponse sans session (déclenchera l'écran de confirmation)
-    debugPrint('[Auth] Edge Function: compte créé sans session, login manuel requis');
-    return null; // déclenchera le fallback auth.signUp qui retournera needsConfirmation
+    debugPrint('[SupabaseAuth] Edge Function: pas de tokens → fallback');
+    return null;
   }
 
-  // ── Signup standard (fallback) ─────────────────────────────────────────────
+  // ── Signup standard ────────────────────────────────────────────────────────
 
   Future<AuthResponse> _signUpStandard({
     required String email,
@@ -155,23 +195,86 @@ class SupabaseAuthRepository implements AuthRepository {
     required String fullName,
     String? phone,
   }) async {
-    final metadata = <String, dynamic>{'full_name': fullName.trim()};
-    if (phone != null && phone.trim().isNotEmpty) {
-      metadata['phone'] = phone.trim();
-    }
+    debugPrint('[SupabaseAuth] 🔄 signUp standard: $email');
+    try {
+      final metadata = <String, dynamic>{'full_name': fullName.trim()};
+      if (phone != null && phone.trim().isNotEmpty) {
+        metadata['phone'] = phone.trim();
+      }
 
-    final response = await _client.auth.signUp(
-      email: email.trim().toLowerCase(),
-      password: password,
-      data: metadata,
+      final response = await _client.auth.signUp(
+        email: email.trim().toLowerCase(),
+        password: password,
+        data: metadata,
+      );
+
+      debugPrint('[SupabaseAuth] ✅ signUp standard OK:'
+          '\n  user=${response.user?.id}'
+          '\n  email_confirmed=${response.user?.emailConfirmedAt}'
+          '\n  session=${response.session != null}'
+          '\n  identities=${response.user?.identities?.length}');
+
+      return response;
+    } on AuthException catch (e) {
+      debugPrint('[SupabaseAuth] ❌ signUp AuthException:'
+          '\n  message: ${e.message}'
+          '\n  statusCode: ${e.statusCode}'
+          '\n  code: ${e.code}');
+      rethrow;
+    } on SocketException catch (e) {
+      debugPrint('[SupabaseAuth] ❌ signUp SocketException: $e');
+      throw const AuthException(
+        'Impossible de contacter le serveur. Vérifiez votre connexion.',
+        statusCode: '0',
+        code: 'network_error',
+      );
+    } catch (e) {
+      debugPrint('[SupabaseAuth] ❌ signUp erreur inattendue: ${e.runtimeType}: $e');
+      rethrow;
+    }
+  }
+
+  // ── Connexion Google (via token id_token) ─────────────────────────────────
+
+  Future<AuthResponse> signInWithGoogle({
+    required String idToken,
+    String? accessToken,
+  }) async {
+    debugPrint('[SupabaseAuth] 🔄 signIn Google...');
+    try {
+      final response = await _client.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
+      debugPrint('[SupabaseAuth] ✅ signIn Google OK: uid=${response.user?.id}');
+      return response;
+    } on AuthException catch (e) {
+      debugPrint('[SupabaseAuth] ❌ Google Auth Exception:'
+          '\n  message: ${e.message}'
+          '\n  code: ${e.code}');
+      rethrow;
+    } catch (e) {
+      debugPrint('[SupabaseAuth] ❌ Google Auth erreur: ${e.runtimeType}: $e');
+      rethrow;
+    }
+  }
+
+  // ── Connexion OAuth web (Google via browser) ──────────────────────────────
+
+  Future<void> signInWithGoogleOAuth() async {
+    debugPrint('[SupabaseAuth] 🔄 signIn Google OAuth...');
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'com.permisconnect.driving://login-callback',
     );
-    return response;
   }
 
   // ── Déconnexion ────────────────────────────────────────────────────────────
 
   @override
   Future<void> signOut() async {
+    debugPrint('[SupabaseAuth] 🚪 signOut');
     await _client.auth.signOut();
   }
 
@@ -179,10 +282,11 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> resetPassword(String email) async {
+    debugPrint('[SupabaseAuth] 🔄 resetPassword: $email');
     await _client.auth.resetPasswordForEmail(email.trim().toLowerCase());
   }
 
-  // ── Vérification disponibilité email ──────────────────────────────────────
+  // ── Vérification email disponible ─────────────────────────────────────────
 
   @override
   Future<bool> isEmailAvailable(String email) async {

@@ -4,12 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../presentation/providers/auth_provider.dart';
+import '../../../presentation/widgets/google_sign_in_button.dart';
 
 /// Inscription élève uniquement.
 /// Gère 3 cas Supabase :
-///   1. Inscription réussie + session → espace élève direct
-///   2. Inscription réussie, confirmation email requise → écran de confirmation
-///   3. Email déjà utilisé → message clair + lien vers login
+///   1. successWithSession → espace élève direct
+///   2. successNeedsConfirmation → écran confirmation email
+///   3. emailAlreadyUsed → message clair + lien login
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -18,19 +19,20 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameCtrl   = TextEditingController();
-  final _emailCtrl  = TextEditingController();
-  final _phoneCtrl  = TextEditingController();
-  final _passCtrl   = TextEditingController();
+  final _formKey   = GlobalKey<FormState>();
+  final _nameCtrl  = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _passCtrl  = TextEditingController();
   final _confirmCtrl = TextEditingController();
 
   bool _obscurePass    = true;
   bool _obscureConfirm = true;
   bool _isLoading      = false;
+  bool _isGoogleLoading = false;
   String? _errorMessage;
 
-  // État : null=formulaire, 'confirm'=attente confirmation email
+  // null = formulaire | 'confirm' = attente confirmation email
   String? _uiState;
   String? _registeredEmail;
 
@@ -44,7 +46,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     super.dispose();
   }
 
-  // ── Soumission ────────────────────────────────────────────────────────────────
+  // ── Inscription email/password ─────────────────────────────────────────────
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -55,24 +57,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     try {
       final result = await ref.read(authActionsProvider).signUp(
-            email:    _emailCtrl.text.trim(),
-            password: _passCtrl.text,
-            fullName: _nameCtrl.text.trim(),
-            phone: _phoneCtrl.text.trim().isEmpty
-                ? null
-                : _phoneCtrl.text.trim(),
-          );
+        email:    _emailCtrl.text.trim(),
+        password: _passCtrl.text,
+        fullName: _nameCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+      );
 
       if (!mounted) return;
 
       switch (result.type) {
         case SignUpResultType.successWithSession:
-          // Session active → espace élève directement
           context.go('/student/home');
           break;
 
         case SignUpResultType.successNeedsConfirmation:
-          // Email de confirmation envoyé
           setState(() {
             _uiState = 'confirm';
             _registeredEmail = result.email;
@@ -82,30 +80,54 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
         case SignUpResultType.emailAlreadyUsed:
           setState(() {
-            _errorMessage =
-                'Cette adresse email est déjà utilisée. Connectez-vous.';
+            _errorMessage = 'Cette adresse email est déjà utilisée.\nConnectez-vous ou réinitialisez votre mot de passe.';
             _isLoading = false;
           });
           break;
       }
     } catch (e) {
-      debugPrint('[Register] Erreur: $e');
+      // Afficher l'erreur RÉELLE de Supabase — jamais de message générique
+      debugPrint('[RegisterScreen] ❌ Erreur catch: ${e.runtimeType}: $e');
       if (mounted) {
         setState(() {
-          _errorMessage = _parseError(e.toString());
+          _errorMessage = _parseError(e);
           _isLoading = false;
         });
       }
     }
   }
 
-  // ── Renvoyer email de confirmation ────────────────────────────────────────────
+  // ── Inscription/connexion Google ───────────────────────────────────────────
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isGoogleLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await ref.read(authActionsProvider).signInWithGoogle();
+
+      if (!mounted) return;
+
+      if (result.type == SignUpResultType.successWithSession) {
+        context.go('/student/home');
+      }
+    } catch (e) {
+      debugPrint('[RegisterScreen] ❌ Google erreur: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = _parseError(e);
+          _isGoogleLoading = false;
+        });
+      }
+    }
+  }
+
+  // ── Renvoyer email de confirmation ─────────────────────────────────────────
   Future<void> _resendConfirmation() async {
     if (_registeredEmail == null) return;
     try {
-      await ref
-          .read(authActionsProvider)
-          .resendConfirmation(_registeredEmail!);
+      await ref.read(authActionsProvider).resendConfirmation(_registeredEmail!);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -126,61 +148,76 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
   }
 
-  // ── Parsing erreurs Supabase → messages humains ───────────────────────────────
-  String _parseError(String raw) {
+  // ── Parsing erreurs — AFFICHE L'ERREUR RÉELLE ─────────────────────────────
+  String _parseError(Object error) {
+    final raw = error.toString();
     final e = raw.toLowerCase();
+    debugPrint('[RegisterScreen] _parseError: $raw');
 
+    // Erreurs Supabase AuthException spécifiques
     if (e.contains('user already registered') ||
         e.contains('already registered') ||
-        e.contains('already been registered')) {
+        e.contains('already been registered') ||
+        e.contains('email_exists') ||
+        e.contains('email already')) {
       return 'Email déjà utilisé. Connectez-vous ou réinitialisez votre mot de passe.';
     }
-    if (e.contains('email_not_confirmed') ||
-        e.contains('not confirmed')) {
-      return 'Un email de confirmation vous a déjà été envoyé. Vérifiez votre boîte mail.';
+    if (e.contains('email_not_confirmed') || e.contains('not confirmed')) {
+      return 'Email non confirmé. Vérifiez votre boîte mail et cliquez sur le lien de confirmation.';
     }
-    if (e.contains('password') && (e.contains('least') || e.contains('weak'))) {
+    if (e.contains('password') && (e.contains('least') || e.contains('weak') || e.contains('short'))) {
       return 'Mot de passe trop faible. Utilisez au moins 8 caractères variés.';
     }
-    if (e.contains('invalid email') ||
-        e.contains('email') && e.contains('invalid')) {
+    if (e.contains('invalid email') || (e.contains('email') && e.contains('invalid'))) {
       return 'Adresse email invalide.';
     }
     if (e.contains('over_email_send_rate_limit') ||
         e.contains('rate limit') ||
-        e.contains('too many')) {
+        e.contains('too many requests')) {
       return 'Trop de tentatives. Attendez quelques minutes.';
     }
     if (e.contains('signup') && e.contains('disabled')) {
       return 'Les inscriptions sont temporairement désactivées.';
     }
-    if (e.contains('network') ||
-        e.contains('socketexception') ||
+    if (e.contains('network_error') || e.contains('code: network_error')) {
+      return 'Impossible de contacter le serveur. Vérifiez votre connexion internet.';
+    }
+
+    // ERREUR RÉSEAU RÉELLE (SocketException, etc.)
+    if (e.contains('socketexception') ||
         e.contains('failed host lookup') ||
-        e.contains('connection refused')) {
+        e.contains('connection refused') ||
+        e.contains('os error')) {
       return 'Pas de connexion internet. Vérifiez votre réseau.';
     }
-    if (e.contains('timeout')) {
+    if (e.contains('timeoutexception') || (e.contains('timeout') && !e.contains('session'))) {
       return 'Connexion trop lente. Réessayez.';
     }
+    if (e.contains('annulée') || e.contains('cancelled') || e.contains('canceled')) {
+      return 'Connexion Google annulée.';
+    }
+    if (e.contains('non configuré') || e.contains('not configured') || e.contains('client id')) {
+      return 'Google Sign-In non configuré. Utilisez l\'inscription par email.';
+    }
 
-    debugPrint('[Register] Erreur brute: $raw');
-    // Afficher l'erreur brute tronquée pour debug
-    final msg = raw.contains(':') ? raw.split(':').last.trim() : raw;
-    return msg.length > 120 ? '${msg.substring(0, 120)}...' : msg;
+    // ⚠️ PAS DE MESSAGE GÉNÉRIQUE — afficher l'erreur brute (tronquée pour l'UI)
+    // Cela permet de voir exactement ce que Supabase retourne
+    final parts = raw.split(':');
+    final msg = parts.length > 1 ? parts.last.trim() : raw;
+    final display = msg.length > 150 ? '${msg.substring(0, 150)}...' : msg;
+    debugPrint('[RegisterScreen] Erreur non classifiée affichée: $display');
+    return display;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    if (_uiState == 'confirm') {
-      return _buildConfirmScreen();
-    }
+    if (_uiState == 'confirm') return _buildConfirmScreen();
     return _buildFormScreen();
   }
 
-  // ── Formulaire principal ──────────────────────────────────────────────────────
+  // ── Formulaire principal ───────────────────────────────────────────────────
   Widget _buildFormScreen() {
     final theme = Theme.of(context);
     return Scaffold(
@@ -213,7 +250,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 // Badge élève
                 _BadgeEleve(),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
+
+                // ── Bouton Google ──────────────────────────────────────────
+                GoogleSignInButton(
+                  onPressed: (_isLoading || _isGoogleLoading) ? null : _signInWithGoogle,
+                  isLoading: _isGoogleLoading,
+                  label: 'Continuer avec Google',
+                ),
+                const SizedBox(height: 16),
+
+                // Séparateur
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('ou',
+                          style: TextStyle(
+                              color: AppColors.textSecondary, fontSize: 13)),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 16),
 
                 // Nom
                 _buildField(
@@ -299,13 +359,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // Erreur
                 if (_errorMessage != null) _ErrorBox(message: _errorMessage!),
 
-                // Bouton
+                // Bouton inscription
                 const SizedBox(height: 4),
                 SizedBox(
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _register,
+                    onPressed: (_isLoading || _isGoogleLoading) ? null : _register,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -352,7 +412,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  // ── Écran confirmation email ──────────────────────────────────────────────────
+  // ── Écran confirmation email ───────────────────────────────────────────────
   Widget _buildConfirmScreen() {
     final theme = Theme.of(context);
     return Scaffold(
@@ -459,7 +519,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  // ── Helpers UI ────────────────────────────────────────────────────────────────
+  // ── Helpers UI ─────────────────────────────────────────────────────────────
   Widget _buildField({
     required TextEditingController controller,
     required String label,

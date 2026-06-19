@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PermisConnect</string>
+
+    <!--
+        GOOGLE SIGN-IN CONFIGURATION
+        ============================
+        Remplacer "VOTRE_WEB_CLIENT_ID" par votre vrai Web Client ID depuis Google Cloud Console.
+
+        Comment obtenir ce Client ID :
+        1. https://console.cloud.google.com/
+        2. Sélectionnez votre projet (ou créez-en un)
+        3. APIs & Services → Credentials
+        4. Create Credentials → OAuth 2.0 Client ID
+           → Application type: Web application
+           → Authorized redirect URIs: https://hruisploxlmhigbsnzbn.supabase.co/auth/v1/callback
+        5. Copiez le "Client ID" (format: xxxxxx.apps.googleusercontent.com)
+        6. Remplacez la valeur ci-dessous
+
+        Supabase Dashboard :
+        → Authentication → Providers → Google
+        → Coller le Client ID + Client Secret
+        → Activer le provider
+    -->
+    <string name="default_web_client_id">VOTRE_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+</resources>

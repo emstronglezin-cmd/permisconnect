@@ -26,10 +26,13 @@ void main() async {
   // Initialisation Hive (stockage local offline)
   await Hive.initFlutter();
 
-  // Initialisation Supabase avec publishableKey (nouveau format Supabase)
+  // Initialisation Supabase avec publishableKey (format sb_publishable_...)
+  // IMPORTANT: utiliser publishableKey: et non anonKey: (déprécié)
   await Supabase.initialize(
     url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.publishableKey,
+    anonKey: SupabaseConfig.publishableKey, // garde anonKey pour compatibilité 2.14.2
+    // publishableKey sera utilisé dans une future migration
+    debug: false, // mettre true pour voir les logs Supabase en dev
   );
 
   runApp(
