@@ -1,6 +1,7 @@
 /// Configuration Supabase — PermisConnect
 /// La publishableKey (sb_publishable_...) est la clé publique du nouveau format Supabase.
 /// La clé privée LeekPay est UNIQUEMENT dans les Edge Functions Supabase.
+library;
 
 class SupabaseConfig {
   static const String url = 'https://hruisploxlmhigbsnzbn.supabase.co';

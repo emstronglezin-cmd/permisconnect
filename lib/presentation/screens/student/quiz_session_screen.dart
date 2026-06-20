@@ -22,6 +22,7 @@ class QuizSessionScreen extends ConsumerStatefulWidget {
 class _QuizSessionScreenState extends ConsumerState<QuizSessionScreen> {
   int? _selectedAnswer;
   bool _answered = false;
+  bool _noQuestions = false;
 
   @override
   void initState() {
@@ -33,11 +34,19 @@ class _QuizSessionScreenState extends ConsumerState<QuizSessionScreen> {
   }
 
   Future<void> _loadQuestions() async {
-    final questions = await ref.read(
-      quizQuestionsProvider(widget.categoryId).future,
-    );
-    if (questions.isNotEmpty) {
-      ref.read(quizSessionProvider.notifier).start(questions);
+    try {
+      final questions = await ref.read(
+        quizQuestionsProvider(widget.categoryId).future,
+      );
+      if (mounted) {
+        if (questions.isNotEmpty) {
+          ref.read(quizSessionProvider.notifier).start(questions);
+        } else {
+          setState(() => _noQuestions = true);
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _noQuestions = true);
     }
   }
 
@@ -94,6 +103,53 @@ class _QuizSessionScreenState extends ConsumerState<QuizSessionScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(quizSessionProvider);
+
+    if (_noQuestions) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.categoryName),
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.go('/student/quiz'),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.quiz, size: 64, color: Colors.grey.shade300),
+                const SizedBox(height: 20),
+                const Text(
+                  'Aucune question disponible',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Les questions pour cette catégorie seront bientôt disponibles.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => context.go('/student/quiz'),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Retour aux catégories'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     if (session == null) {
       return Scaffold(
@@ -271,10 +327,10 @@ class _QuizSessionScreenState extends ConsumerState<QuizSessionScreen> {
                               ),
                               if (_answered) ...[
                                 if (i == question.correctOptionIndex)
-                                  Icon(Icons.check_circle,
+                                  const Icon(Icons.check_circle,
                                       color: AppColors.success)
                                 else if (i == _selectedAnswer)
-                                  Icon(Icons.cancel, color: AppColors.error),
+                                  const Icon(Icons.cancel, color: AppColors.error),
                               ],
                             ],
                           ),

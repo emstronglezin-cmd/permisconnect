@@ -119,7 +119,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                         ),
                       ],
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.drive_eta,
                       size: 56,
                       color: AppColors.primary,

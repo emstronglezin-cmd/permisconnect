@@ -26,91 +26,101 @@ class LivretScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: studentAsync.when(
-        data: (student) => skillsAsync.when(
-          data: (skills) {
-            // Grouper les compétences par catégorie
-            final grouped = <String, List<dynamic>>{};
-            for (final skill in skills) {
-              final cat = skill.skillCategory ?? 'Autres';
-              grouped[cat] = [...(grouped[cat] ?? []), skill];
-            }
+      body: skillsAsync.when(
+        data: (skills) {
+          // Utiliser la valeur student si disponible, sinon valeur par défaut
+          final student = studentAsync.value;
 
-            // Progression globale
-            final totalLevel = skills.isEmpty
-                ? 0
-                : skills.fold<int>(0, (sum, s) => sum + s.level);
-            final maxLevel = skills.length * 4;
-            final globalProgress =
-                maxLevel > 0 ? totalLevel / maxLevel : 0.0;
+          // Grouper les compétences par catégorie
+          final grouped = <String, List<dynamic>>{};
+          for (final skill in skills) {
+            final cat = skill.skillCategory ?? 'Autres';
+            grouped[cat] = [...(grouped[cat] ?? []), skill];
+          }
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // Carte progression globale
-                  _GlobalProgressCard(
-                    hoursCompleted: student?.hoursCompleted ?? 0,
-                    hoursRequired: student?.hoursRequired ?? 20,
-                    globalProgress: globalProgress,
-                  ),
-                  const SizedBox(height: 20),
+          // Progression globale
+          final totalLevel = skills.isEmpty
+              ? 0
+              : skills.fold<int>(0, (sum, s) => sum + s.level);
+          final maxLevel = skills.length * 4;
+          final globalProgress =
+              maxLevel > 0 ? totalLevel / maxLevel : 0.0;
 
-                  // Si aucune compétence enregistrée
-                  if (skills.isEmpty) ...[
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.menu_book,
-                              size: 48, color: Colors.grey.shade300),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Aucune évaluation enregistrée',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Vos compétences seront enregistrées par votre moniteur lors des séances de conduite.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: AppColors.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    // Sections par catégorie
-                    ...grouped.entries.map((entry) => _CategorySection(
-                          category: entry.key,
-                          skills: entry.value,
-                        )),
-                  ],
-                ],
-              ),
-            );
-          },
-          loading: () =>
-              const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text('Erreur de chargement'),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () => ref.invalidate(mySkillsProvider),
-                  child: const Text('Réessayer'),
+                // Carte progression globale
+                _GlobalProgressCard(
+                  hoursCompleted: student?.hoursCompleted ?? 0,
+                  hoursRequired: student?.hoursRequired ?? 30,
+                  globalProgress: globalProgress,
                 ),
+                const SizedBox(height: 20),
+
+                // Si aucune compétence enregistrée
+                if (skills.isEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.menu_book,
+                            size: 48, color: Colors.grey.shade300),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Aucune évaluation enregistrée',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Vos compétences seront enregistrées par votre moniteur lors des séances de conduite.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  // Sections par catégorie
+                  ...grouped.entries.map((entry) => _CategorySection(
+                        category: entry.key,
+                        skills: entry.value,
+                      )),
+                ],
               ],
             ),
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.menu_book, size: 48, color: Colors.grey.shade300),
+              const SizedBox(height: 12),
+              const Text(
+                'Aucune évaluation enregistrée',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Vos compétences seront enregistrées par votre moniteur lors des séances de conduite.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => ref.invalidate(mySkillsProvider),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualiser'),
+              ),
+            ],
           ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => const SizedBox(),
       ),
     );
   }
@@ -132,8 +142,8 @@ class _GlobalProgressCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primary, const Color(0xFF0D3D7A)],
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, Color(0xFF0D3D7A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -150,7 +160,7 @@ class _GlobalProgressCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Icon(Icons.access_time, color: Colors.white70, size: 18),
+              const Icon(Icons.access_time, color: Colors.white70, size: 18),
               const SizedBox(width: 6),
               Text(
                 '$hoursCompleted / $hoursRequired heures',

@@ -94,18 +94,18 @@ class _VehicleCard extends StatelessWidget {
                   ),
                   Text(
                     vehicle.licensePlate,
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 13),
                   ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.settings,
+                      const Icon(Icons.settings,
                           size: 14, color: AppColors.textSecondary),
                       const SizedBox(width: 4),
                       Text(
                         vehicle.type == 'manual' ? 'Manuelle' : 'Automatique',
-                        style: TextStyle(
+                        style: const TextStyle(
                             fontSize: 12, color: AppColors.textSecondary),
                       ),
                     ],

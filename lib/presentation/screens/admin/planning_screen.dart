@@ -72,7 +72,7 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                         _focusedDay = foc;
                       }),
                   calendarStyle: CalendarStyle(
-                    selectedDecoration: BoxDecoration(
+                    selectedDecoration: const BoxDecoration(
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
@@ -80,12 +80,12 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                       color: AppColors.accent.withValues(alpha: 0.3),
                       shape: BoxShape.circle,
                     ),
-                    markerDecoration: BoxDecoration(
+                    markerDecoration: const BoxDecoration(
                       color: AppColors.success,
                       shape: BoxShape.circle,
                     ),
                   ),
-                  headerStyle: HeaderStyle(
+                  headerStyle: const HeaderStyle(
                     formatButtonVisible: false,
                     titleCentered: true,
                   ),
@@ -112,7 +112,7 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                       ),
                       child: Text(
                         '${selectedLessons.length} cours',
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.primary, fontSize: 12),
                       ),
                     ),
@@ -128,7 +128,7 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                             Icon(Icons.event_available,
                                 size: 40, color: Colors.grey.shade300),
                             const SizedBox(height: 10),
-                            Text('Aucun cours ce jour',
+                            const Text('Aucun cours ce jour',
                                 style: TextStyle(
                                     color: AppColors.textSecondary)),
                           ],
@@ -165,7 +165,7 @@ class _PlanningItem extends StatelessWidget {
           backgroundColor: AppColors.primary.withValues(alpha: 0.1),
           child: Text(
             '${lesson.scheduledAt.hour.toString().padLeft(2, '0')}:${lesson.scheduledAt.minute.toString().padLeft(2, '0')}',
-            style: TextStyle(
+            style: const TextStyle(
                 color: AppColors.primary,
                 fontWeight: FontWeight.bold,
                 fontSize: 11),
@@ -187,7 +187,7 @@ class _PlanningItem extends StatelessWidget {
           ),
           child: Text(
             lesson.vehicleName ?? '',
-            style: TextStyle(color: AppColors.primary, fontSize: 11),
+            style: const TextStyle(color: AppColors.primary, fontSize: 11),
           ),
         ),
       ),

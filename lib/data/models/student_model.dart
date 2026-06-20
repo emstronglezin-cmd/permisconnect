@@ -1,14 +1,14 @@
 class StudentModel {
   final String id;
   final String profileId;
-  final String? registrationNumber;
+  final String? registrationNumber; // student_number dans la DB
   final String? formula;
-  final String status;
+  final String status;              // 'ACTIVE','SUSPENDED','COMPLETED','DROPPED'
   final DateTime? enrollmentDate;
   final DateTime? examDate;
-  final int hoursCompleted;
-  final int hoursRequired;
-  final int quizScore;
+  final int hoursCompleted;         // DECIMAL dans la DB → int
+  final int hoursRequired;          // 30 par défaut dans la DB
+  final int quizScore;              // Pas dans la DB → toujours 0
   final String? instructorId;
   final String? notes;
   final DateTime createdAt;
@@ -24,11 +24,11 @@ class StudentModel {
     required this.profileId,
     this.registrationNumber,
     this.formula,
-    this.status = 'active',
+    this.status = 'ACTIVE',
     this.enrollmentDate,
     this.examDate,
     this.hoursCompleted = 0,
-    this.hoursRequired = 20,
+    this.hoursRequired = 30,
     this.quizScore = 0,
     this.instructorId,
     this.notes,
@@ -42,24 +42,35 @@ class StudentModel {
   double get progressPercent =>
       hoursRequired > 0 ? (hoursCompleted / hoursRequired).clamp(0.0, 1.0) : 0;
 
+  // Normalise le status pour comparaison (ACTIVE == active)
+  bool get isActive =>
+      status.toUpperCase() == 'ACTIVE';
+
   factory StudentModel.fromJson(Map<String, dynamic> json) {
     // Gestion des données jointes (profiles)
     final profileData = json['profiles'] as Map<String, dynamic>?;
 
+    // hours_completed peut être decimal dans la DB
+    final hoursRaw = json['hours_completed'];
+    final hoursCompleted = hoursRaw is double
+        ? hoursRaw.round()
+        : hoursRaw as int? ?? 0;
+
     return StudentModel(
       id: json['id'] as String? ?? '',
       profileId: json['profile_id'] as String? ?? '',
-      registrationNumber: json['registration_number'] as String?,
+      registrationNumber: json['student_number'] as String?
+          ?? json['registration_number'] as String?,
       formula: json['formula'] as String?,
-      status: json['status'] as String? ?? 'active',
+      status: json['status'] as String? ?? 'ACTIVE',
       enrollmentDate: json['enrollment_date'] != null
-          ? DateTime.parse(json['enrollment_date'] as String)
+          ? DateTime.tryParse(json['enrollment_date'] as String)
           : null,
       examDate: json['exam_date'] != null
-          ? DateTime.parse(json['exam_date'] as String)
+          ? DateTime.tryParse(json['exam_date'] as String)
           : null,
-      hoursCompleted: json['hours_completed'] as int? ?? 0,
-      hoursRequired: json['hours_required'] as int? ?? 20,
+      hoursCompleted: hoursCompleted,
+      hoursRequired: json['hours_required'] as int? ?? 30,
       quizScore: json['quiz_score'] as int? ?? 0,
       instructorId: json['instructor_id'] as String?,
       notes: json['notes'] as String?,
@@ -77,15 +88,13 @@ class StudentModel {
     return {
       'id': id,
       'profile_id': profileId,
-      'registration_number': registrationNumber,
+      'student_number': registrationNumber,
       'formula': formula,
       'status': status,
       'enrollment_date': enrollmentDate?.toIso8601String(),
       'exam_date': examDate?.toIso8601String(),
       'hours_completed': hoursCompleted,
       'hours_required': hoursRequired,
-      'quiz_score': quizScore,
-      'instructor_id': instructorId,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
     };

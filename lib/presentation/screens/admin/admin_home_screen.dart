@@ -25,9 +25,9 @@ class AdminHomeScreen extends ConsumerWidget {
             backgroundColor: AppColors.primary,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [AppColors.primary, const Color(0xFF0D3D7A)],
+                    colors: [AppColors.primary, Color(0xFF0D3D7A)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -257,7 +257,7 @@ class _KpiCard extends StatelessWidget {
           ),
           Text(
             label,
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
             textAlign: TextAlign.center,
           ),
         ],
@@ -355,7 +355,7 @@ class _PaymentTile extends StatelessWidget {
                 ),
                 Text(
                   '${payment.createdAt.day}/${payment.createdAt.month}/${payment.createdAt.year}',
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
               ],
             ),

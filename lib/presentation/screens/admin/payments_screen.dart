@@ -177,7 +177,7 @@ class _SummaryItem extends StatelessWidget {
                       color: color,
                       fontSize: 15)),
               Text(label,
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 11)),
             ],
           ),
@@ -237,23 +237,23 @@ class _PaymentCard extends StatelessWidget {
                   ),
                   Text(
                     '${payment.createdAt.day}/${payment.createdAt.month}/${payment.createdAt.year}',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 13),
                   ),
                   if (payment.formula != null)
                     Text(
                       'Formule: ${payment.formula}',
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
                     ),
                   Row(
                     children: [
-                      Icon(Icons.phone_android,
+                      const Icon(Icons.phone_android,
                           size: 12, color: AppColors.textSecondary),
                       const SizedBox(width: 4),
                       Text(
                         payment.method,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textSecondary, fontSize: 11),
                       ),
                     ],

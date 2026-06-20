@@ -9,54 +9,63 @@ class SupabaseLessonRepository implements LessonRepository {
   SupabaseLessonRepository(this._client);
 
   static const _joinQuery =
-      '*, students(profiles(full_name)), instructors(profiles(full_name)), vehicles(brand, model)';
+      '*, instructors(id, profiles(full_name)), vehicles(brand, model)';
 
   @override
   Future<List<LessonModel>> getMyLessons() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return [];
 
-    // Récupérer le student_id de l'utilisateur
-    final profileData = await _client
-        .from(SupabaseConfig.tableProfiles)
-        .select('id')
-        .eq('user_id', userId)
-        .maybeSingle();
-    if (profileData == null) return [];
+    try {
+      // Récupérer le profil
+      final profileData = await _client
+          .from(SupabaseConfig.tableProfiles)
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (profileData == null) return [];
 
-    final studentData = await _client
-        .from(SupabaseConfig.tableStudents)
-        .select('id')
-        .eq('profile_id', profileData['id'] as String)
-        .maybeSingle();
-    if (studentData == null) return [];
+      // Récupérer le student_id
+      final studentData = await _client
+          .from(SupabaseConfig.tableStudents)
+          .select('id')
+          .eq('profile_id', profileData['id'] as String)
+          .maybeSingle();
+      if (studentData == null) return [];
 
-    final data = await _client
-        .from(SupabaseConfig.tableDrivingLessons)
-        .select(_joinQuery)
-        .eq('student_id', studentData['id'] as String)
-        .order('scheduled_at', ascending: true);
+      // Le schéma utilise scheduled_date (DATE) + start_time (TIME)
+      final data = await _client
+          .from(SupabaseConfig.tableDrivingLessons)
+          .select(_joinQuery)
+          .eq('student_id', studentData['id'] as String)
+          .order('scheduled_date', ascending: true)
+          .order('start_time', ascending: true);
 
-    return (data as List)
-        .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
-        .toList();
+      return (data as List)
+          .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   @override
   Future<List<LessonModel>> getLessonsByDate(DateTime date) async {
-    final startOfDay = DateTime(date.year, date.month, date.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
+    try {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-    final data = await _client
-        .from(SupabaseConfig.tableDrivingLessons)
-        .select(_joinQuery)
-        .gte('scheduled_at', startOfDay.toIso8601String())
-        .lt('scheduled_at', endOfDay.toIso8601String())
-        .order('scheduled_at', ascending: true);
+      final data = await _client
+          .from(SupabaseConfig.tableDrivingLessons)
+          .select(_joinQuery)
+          .eq('scheduled_date', dateStr)
+          .order('start_time', ascending: true);
 
-    return (data as List)
-        .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
-        .toList();
+      return (data as List)
+          .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   @override
@@ -64,33 +73,41 @@ class SupabaseLessonRepository implements LessonRepository {
     DateTime? from,
     DateTime? to,
   }) async {
-    // Construire la requête avec filtres de dates optionnels
-    var baseQuery = _client
-        .from(SupabaseConfig.tableDrivingLessons)
-        .select(_joinQuery);
+    try {
+      List<dynamic> data;
+      var baseQuery = _client
+          .from(SupabaseConfig.tableDrivingLessons)
+          .select(_joinQuery);
 
-    List<dynamic> data;
-    if (from != null && to != null) {
-      data = await baseQuery
-          .gte('scheduled_at', from.toIso8601String())
-          .lte('scheduled_at', to.toIso8601String())
-          .order('scheduled_at', ascending: false);
-    } else if (from != null) {
-      data = await baseQuery
-          .gte('scheduled_at', from.toIso8601String())
-          .order('scheduled_at', ascending: false);
-    } else if (to != null) {
-      data = await baseQuery
-          .lte('scheduled_at', to.toIso8601String())
-          .order('scheduled_at', ascending: false);
-    } else {
-      data = await baseQuery.order('scheduled_at', ascending: false);
+      if (from != null && to != null) {
+        final fromStr = _dateToStr(from);
+        final toStr = _dateToStr(to);
+        data = await baseQuery
+            .gte('scheduled_date', fromStr)
+            .lte('scheduled_date', toStr)
+            .order('scheduled_date', ascending: false);
+      } else if (from != null) {
+        data = await baseQuery
+            .gte('scheduled_date', _dateToStr(from))
+            .order('scheduled_date', ascending: false);
+      } else if (to != null) {
+        data = await baseQuery
+            .lte('scheduled_date', _dateToStr(to))
+            .order('scheduled_date', ascending: false);
+      } else {
+        data = await baseQuery.order('scheduled_date', ascending: false);
+      }
+
+      return data
+          .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
     }
-
-    return data
-        .map((json) => LessonModel.fromJson(json as Map<String, dynamic>))
-        .toList();
   }
+
+  String _dateToStr(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   @override
   Future<LessonModel> createLesson(Map<String, dynamic> data) async {
@@ -106,7 +123,7 @@ class SupabaseLessonRepository implements LessonRepository {
   Future<void> cancelLesson(String lessonId) async {
     await _client
         .from(SupabaseConfig.tableDrivingLessons)
-        .update({'status': 'cancelled'})
+        .update({'status': 'CANCELLED'})
         .eq('id', lessonId);
   }
 }

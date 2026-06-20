@@ -77,7 +77,7 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
                     });
                   },
                   calendarStyle: CalendarStyle(
-                    selectedDecoration: BoxDecoration(
+                    selectedDecoration: const BoxDecoration(
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
@@ -85,12 +85,12 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
                       color: AppColors.accent.withValues(alpha: 0.3),
                       shape: BoxShape.circle,
                     ),
-                    markerDecoration: BoxDecoration(
+                    markerDecoration: const BoxDecoration(
                       color: AppColors.success,
                       shape: BoxShape.circle,
                     ),
                   ),
-                  headerStyle: HeaderStyle(
+                  headerStyle: const HeaderStyle(
                     formatButtonVisible: false,
                     titleCentered: true,
                     titleTextStyle: TextStyle(
@@ -126,7 +126,7 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
                       ),
                       child: Text(
                         '${selectedLessons.length} cours',
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.primary, fontSize: 12),
                       ),
                     ),
@@ -144,7 +144,7 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
                             Icon(Icons.event_available,
                                 size: 48, color: Colors.grey.shade300),
                             const SizedBox(height: 12),
-                            Text(
+                            const Text(
                               'Aucun cours ce jour',
                               style: TextStyle(
                                   color: AppColors.textSecondary),
@@ -163,21 +163,67 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline,
-                  size: 48, color: AppColors.error),
-              const SizedBox(height: 12),
-              const Text('Erreur de chargement des cours'),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(myLessonsProvider),
-                child: const Text('Réessayer'),
+        error: (e, _) => Column(
+          children: [
+            // Calendrier vide avec date du jour
+            Container(
+              color: Colors.white,
+              child: TableCalendar(
+                firstDay: DateTime.now().subtract(const Duration(days: 365)),
+                lastDay: DateTime.now().add(const Duration(days: 365)),
+                focusedDay: _focusedDay,
+                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                eventLoader: (_) => [],
+                onDaySelected: (selected, focused) {
+                  setState(() {
+                    _selectedDay = selected;
+                    _focusedDay = focused;
+                  });
+                },
+                calendarStyle: CalendarStyle(
+                  selectedDecoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  todayDecoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.3),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                headerStyle: const HeaderStyle(
+                  formatButtonVisible: false,
+                  titleCentered: true,
+                ),
+                locale: 'fr_FR',
               ),
-            ],
-          ),
+            ),
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.event_available,
+                        size: 48, color: Colors.grey.shade300),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Aucun cours planifié',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () => ref.invalidate(myLessonsProvider),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Actualiser'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -192,9 +238,11 @@ class _LessonItem extends StatelessWidget {
   Widget build(BuildContext context) {
     Color statusColor;
     switch (lesson.status) {
+      case 'COMPLETED':
       case 'completed':
         statusColor = AppColors.success;
         break;
+      case 'CANCELLED':
       case 'cancelled':
         statusColor = AppColors.error;
         break;
@@ -239,13 +287,13 @@ class _LessonItem extends StatelessWidget {
                   Text(
                     '${lesson.scheduledAt.hour.toString().padLeft(2, '0')}:${lesson.scheduledAt.minute.toString().padLeft(2, '0')} '
                     '— ${lesson.durationMinutes} min',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 13),
                   ),
                   if (lesson.vehicleName != null)
                     Text(
                       lesson.vehicleName!,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
                     ),
                 ],

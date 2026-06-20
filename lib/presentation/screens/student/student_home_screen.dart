@@ -28,13 +28,13 @@ class StudentHomeScreen extends ConsumerWidget {
             backgroundColor: AppColors.primary,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
                       AppColors.primary,
-                      const Color(0xFF0D3D7A),
+                      Color(0xFF0D3D7A),
                     ],
                   ),
                 ),
@@ -121,7 +121,7 @@ class StudentHomeScreen extends ConsumerWidget {
                           quizScore: student.quizScore,
                           status: student.status,
                         )
-                      : _ProgressCard(
+                      : const _ProgressCard(
                           hoursCompleted: 0,
                           hoursRequired: 20,
                           quizScore: 0,
@@ -163,17 +163,17 @@ class StudentHomeScreen extends ConsumerWidget {
                 const SizedBox(height: 20),
 
                 // Actions rapides
-                _SectionTitle(title: 'Actions rapides'),
+                const _SectionTitle(title: 'Actions rapides'),
                 const SizedBox(height: 12),
                 _QuickActions(),
                 const SizedBox(height: 20),
 
                 // Prochains cours
-                _SectionTitle(title: 'Prochains cours'),
+                const _SectionTitle(title: 'Prochains cours'),
                 const SizedBox(height: 12),
                 upcomingAsync.when(
                   data: (lessons) => lessons.isEmpty
-                      ? _EmptyState(
+                      ? const _EmptyState(
                           icon: Icons.event_available,
                           message: 'Aucun cours planifié',
                         )
@@ -233,9 +233,9 @@ class _ProgressCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.trending_up, color: AppColors.primary),
+              const Icon(Icons.trending_up, color: AppColors.primary),
               const SizedBox(width: 8),
-              Text(
+              const Text(
                 'Ma progression',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
@@ -271,7 +271,7 @@ class _ProgressCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Heures de conduite',
                       style: TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
@@ -279,7 +279,7 @@ class _ProgressCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       '$hoursCompleted / $hoursRequired h',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -292,7 +292,7 @@ class _ProgressCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Score quiz',
                       style: TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
@@ -300,7 +300,7 @@ class _ProgressCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       '$quizScore pts',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.accent,
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -318,14 +318,14 @@ class _ProgressCard extends StatelessWidget {
               value: progress.clamp(0.0, 1.0),
               minHeight: 8,
               backgroundColor: Colors.grey.shade200,
-              valueColor: AlwaysStoppedAnimation(AppColors.primary),
+              valueColor: const AlwaysStoppedAnimation(AppColors.primary),
             ),
           ),
           const SizedBox(height: 6),
           Text(
             '${(progress * 100).round()}% complété',
             style:
-                TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                const TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
         ],
       ),
@@ -413,7 +413,7 @@ class _StatCard extends StatelessWidget {
           ),
           Text(
             label,
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
             textAlign: TextAlign.center,
           ),
         ],
@@ -540,7 +540,7 @@ class _LessonCard extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.directions_car, color: AppColors.primary),
+            child: const Icon(Icons.directions_car, color: AppColors.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -554,13 +554,13 @@ class _LessonCard extends StatelessWidget {
                 Text(
                   '${lesson.scheduledAt.day}/${lesson.scheduledAt.month}/${lesson.scheduledAt.year} '
                   '${lesson.scheduledAt.hour.toString().padLeft(2, '0')}:${lesson.scheduledAt.minute.toString().padLeft(2, '0')}',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 13),
                 ),
                 if (lesson.location != null)
                   Text(
                     lesson.location!,
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 12),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -575,7 +575,7 @@ class _LessonCard extends StatelessWidget {
             ),
             child: Text(
               '${lesson.durationMinutes} min',
-              style: TextStyle(
+              style: const TextStyle(
                   color: AppColors.primary,
                   fontSize: 12,
                   fontWeight: FontWeight.w600),
@@ -637,7 +637,7 @@ class _EmptyState extends StatelessWidget {
           Icon(icon, size: 40, color: Colors.grey.shade400),
           const SizedBox(height: 8),
           Text(message,
-              style: TextStyle(color: AppColors.textSecondary)),
+              style: const TextStyle(color: AppColors.textSecondary)),
         ],
       ),
     );
@@ -653,12 +653,21 @@ class _ErrorState extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
+        color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Text(
-        'Erreur de chargement',
-        style: TextStyle(color: Colors.red.shade700),
+      child: Row(
+        children: [
+          Icon(Icons.event_available, color: Colors.grey.shade400, size: 32),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Aucun cours planifié',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }

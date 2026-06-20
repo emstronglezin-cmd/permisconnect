@@ -85,7 +85,7 @@ class _InstructorCard extends StatelessWidget {
               backgroundColor: AppColors.accent.withValues(alpha: 0.1),
               child: Text(
                 (instructor.fullName ?? 'M').substring(0, 1).toUpperCase(),
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.accent, fontWeight: FontWeight.bold),
               ),
             ),
@@ -101,31 +101,31 @@ class _InstructorCard extends StatelessWidget {
                   if (instructor.phone != null)
                     Text(
                       instructor.phone!,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 13),
                     ),
                   if (instructor.specialization != null)
                     Text(
                       instructor.specialization!,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
                     ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.star, size: 14, color: Colors.amber),
+                      const Icon(Icons.star, size: 14, color: Colors.amber),
                       const SizedBox(width: 4),
                       Text(
                         instructor.rating.toStringAsFixed(1),
                         style: const TextStyle(fontSize: 12),
                       ),
                       const SizedBox(width: 12),
-                      Icon(Icons.assignment, size: 14,
+                      const Icon(Icons.assignment, size: 14,
                           color: AppColors.textSecondary),
                       const SizedBox(width: 4),
                       Text(
                         '${instructor.totalLessons} cours',
-                        style: TextStyle(
+                        style: const TextStyle(
                             fontSize: 12, color: AppColors.textSecondary),
                       ),
                     ],

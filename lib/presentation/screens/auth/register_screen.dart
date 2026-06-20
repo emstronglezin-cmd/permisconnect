@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -261,16 +260,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 16),
 
                 // Séparateur
-                Row(
+                const Row(
                   children: [
-                    const Expanded(child: Divider()),
+                    Expanded(child: Divider()),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: EdgeInsets.symmetric(horizontal: 12),
                       child: Text('ou',
                           style: TextStyle(
                               color: AppColors.textSecondary, fontSize: 13)),
                     ),
-                    const Expanded(child: Divider()),
+                    Expanded(child: Divider()),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -393,7 +392,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Déjà un compte ? ',
+                      const Text('Déjà un compte ? ',
                           style: TextStyle(color: AppColors.textSecondary)),
                       TextButton(
                         onPressed: () => context.pop(),
@@ -497,7 +496,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 label: const Text('Renvoyer l\'email'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primary,
-                  side: BorderSide(color: AppColors.primary),
+                  side: const BorderSide(color: AppColors.primary),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   minimumSize: const Size(double.infinity, 48),
@@ -601,10 +600,10 @@ class _BadgeEleve extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(Icons.school, color: AppColors.primary, size: 22),
+            child: const Icon(Icons.school, color: AppColors.primary, size: 22),
           ),
           const SizedBox(width: 12),
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -613,14 +612,14 @@ class _BadgeEleve extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                         color: AppColors.primary,
                         fontSize: 14)),
-                const SizedBox(height: 2),
+                SizedBox(height: 2),
                 Text('Accès à vos cours, quiz et planning',
                     style: TextStyle(
                         color: AppColors.textSecondary, fontSize: 12)),
               ],
             ),
           ),
-          Icon(Icons.verified, color: AppColors.primary, size: 20),
+          const Icon(Icons.verified, color: AppColors.primary, size: 20),
         ],
       ),
     );
@@ -645,11 +644,11 @@ class _ErrorBox extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.error_outline, color: AppColors.error, size: 20),
+            const Icon(Icons.error_outline, color: AppColors.error, size: 20),
             const SizedBox(width: 10),
             Expanded(
               child: Text(message,
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.error, fontSize: 13, height: 1.4)),
             ),
           ],

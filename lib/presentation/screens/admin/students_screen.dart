@@ -72,7 +72,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                 ),
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
-                  icon: Icon(Icons.filter_list, color: AppColors.primary),
+                  icon: const Icon(Icons.filter_list, color: AppColors.primary),
                   onSelected: (val) {
                     setState(() => _statusFilter = val);
                     ref.read(studentsListProvider.notifier).load(
@@ -123,7 +123,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.error, color: AppColors.error, size: 40),
+                    const Icon(Icons.error, color: AppColors.error, size: 40),
                     const SizedBox(height: 12),
                     const Text('Erreur de chargement'),
                     const SizedBox(height: 12),
@@ -169,7 +169,7 @@ class _StudentCard extends StatelessWidget {
               backgroundColor: AppColors.primary.withValues(alpha: 0.1),
               child: Text(
                 (student.fullName ?? 'E').substring(0, 1).toUpperCase(),
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.primary, fontWeight: FontWeight.bold),
               ),
             ),
@@ -185,7 +185,7 @@ class _StudentCard extends StatelessWidget {
                   if (student.phone != null)
                     Text(
                       student.phone!,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 13),
                     ),
                   const SizedBox(height: 6),
@@ -196,13 +196,13 @@ class _StudentCard extends StatelessWidget {
                       value: student.progressPercent,
                       minHeight: 4,
                       backgroundColor: Colors.grey.shade200,
-                      valueColor: AlwaysStoppedAnimation(AppColors.primary),
+                      valueColor: const AlwaysStoppedAnimation(AppColors.primary),
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${student.hoursCompleted}/${student.hoursRequired} h',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 11),
                   ),
                 ],

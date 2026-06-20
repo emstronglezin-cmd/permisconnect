@@ -22,7 +22,7 @@ class QuizCategoriesScreen extends ConsumerWidget {
       body: categoriesAsync.when(
         data: (categories) {
           if (categories.isEmpty) {
-            return _buildFallbackCategories(context);
+            return _buildEmptyState(context, ref);
           }
           return RefreshIndicator(
             onRefresh: () => ref.refresh(quizCategoriesProvider.future),
@@ -46,40 +46,49 @@ class QuizCategoriesScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => _buildFallbackCategories(context),
+        error: (_, __) => _buildEmptyState(context, ref),
       ),
     );
   }
 
-  // Catégories de repli si Supabase est vide
-  Widget _buildFallbackCategories(BuildContext context) {
-    final fallback = [
-      {'name': 'Panneaux de signalisation', 'count': 15, 'icon': Icons.signpost},
-      {'name': 'Priorités', 'count': 10, 'icon': Icons.priority_high},
-      {'name': 'Règles de conduite', 'count': 20, 'icon': Icons.rule},
-      {'name': 'Distances de sécurité', 'count': 8, 'icon': Icons.social_distance},
-      {'name': 'Alcool & Drogues', 'count': 10, 'icon': Icons.local_bar},
-      {'name': 'Premiers secours', 'count': 12, 'icon': Icons.local_hospital},
-    ];
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: fallback.length,
-      itemBuilder: (ctx, i) {
-        final cat = fallback[i];
-        return _CategoryCard(
-          name: cat['name'] as String,
-          description: 'Questions sur ${cat['name']}',
-          questionCount: cat['count'] as int,
-          color: AppColors.primary,
-          icon: cat['icon'] as IconData,
-          onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Connectez votre base Supabase pour accéder aux quiz')),
-          ),
-        );
-      },
+  // État vide / erreur propre avec bouton de rafraîchissement
+  Widget _buildEmptyState(BuildContext context, WidgetRef ref) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.quiz, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 20),
+            const Text(
+              'Quiz bientôt disponibles',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Les catégories de quiz sont en cours de chargement. Appuyez sur Actualiser.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => ref.invalidate(quizCategoriesProvider),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Actualiser'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
+
 
   Color _hexToColor(String hex) {
     try {
@@ -150,7 +159,7 @@ class _CategoryCard extends StatelessWidget {
                             fontWeight: FontWeight.w600, fontSize: 15)),
                     const SizedBox(height: 4),
                     Text(description,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textSecondary, fontSize: 13),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis),
@@ -167,7 +176,7 @@ class _CategoryCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.arrow_forward_ios,
+              const Icon(Icons.arrow_forward_ios,
                   size: 16, color: AppColors.textSecondary),
             ],
           ),

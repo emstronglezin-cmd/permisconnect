@@ -88,7 +88,7 @@ class QuizResultScreen extends ConsumerWidget {
                     ? 'Vous avez réussi ce quiz avec succès !'
                     : 'La note de passage est 70%. Révisez et réessayez.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 15,
                 ),
@@ -218,7 +218,7 @@ class _ResultRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: TextStyle(color: AppColors.textSecondary),
+            style: const TextStyle(color: AppColors.textSecondary),
           ),
         ),
         Text(

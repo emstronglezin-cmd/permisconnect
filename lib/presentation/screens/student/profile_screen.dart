@@ -271,7 +271,7 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(
+              style: const TextStyle(
                   color: AppColors.textSecondary, fontSize: 14),
             ),
           ),
