@@ -131,4 +131,11 @@ class SupabaseStudentRepository implements StudentRepository {
         .update({'hours_completed': hours})
         .eq('id', studentId);
   }
+
+  Future<void> updateStudentStatus(String studentId, String status) async {
+    await _client
+        .from(SupabaseConfig.tableStudents)
+        .update({'status': status})
+        .eq('id', studentId);
+  }
 }

@@ -20,6 +20,8 @@ import '../../presentation/screens/admin/instructors_screen.dart';
 import '../../presentation/screens/admin/vehicles_screen.dart';
 import '../../presentation/screens/admin/planning_screen.dart';
 import '../../presentation/screens/admin/payments_screen.dart';
+import '../../presentation/screens/admin/admin_settings_screen.dart';
+import '../../presentation/screens/admin/admin_notifications_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final notifier = RouterNotifier(ref);
@@ -173,6 +175,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/payments',
             builder: (context, state) => const PaymentsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/settings',
+            builder: (context, state) => const AdminSettingsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/notifications',
+            builder: (context, state) => const AdminNotificationsScreen(),
           ),
         ],
       ),

@@ -66,7 +66,7 @@ class AdminHomeScreen extends ConsumerWidget {
               IconButton(
                 icon: const Icon(Icons.notifications_outlined,
                     color: Colors.white),
-                onPressed: () {},
+                onPressed: () => context.go('/admin/notifications'),
               ),
               IconButton(
                 icon: const Icon(Icons.logout, color: Colors.white),
@@ -167,7 +167,7 @@ class AdminHomeScreen extends ConsumerWidget {
                     _NavItem(
                       icon: Icons.settings,
                       label: 'Paramètres',
-                      onTap: () {},
+                      onTap: () => context.go('/admin/settings'),
                     ),
                   ],
                 ),
